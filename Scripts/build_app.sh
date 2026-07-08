@@ -18,6 +18,13 @@ cp "${BUILD_DIR}/ClaudeSessionPinger" "${APP_DIR}/Contents/MacOS/ClaudeSessionPi
 cp "Resources/Info.plist" "${APP_DIR}/Contents/Info.plist"
 cp "Resources/AppIcon.icns" "${APP_DIR}/Contents/Resources/AppIcon.icns"
 
+# Strip Finder metadata / extended attributes before signing. codesign
+# refuses to sign a bundle containing them ("resource fork, Finder
+# information, or similar detritus not allowed"). Newer macOS versions add
+# provenance/quarantine xattrs to copied files, so always clean first.
+xattr -cr "${APP_DIR}"
+find "${APP_DIR}" -name "._*" -delete
+
 # Sign with a stable code-signing identity if one is available, so the app's
 # code identity stays the same across updates and the macOS keychain does not
 # re-prompt for access every time you update. Falls back to ad-hoc signing

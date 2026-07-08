@@ -80,31 +80,38 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         return .systemRed
     }
 
-    /// Draws the 16x16 starburst (eight rounded rays like the Claude logo)
-    /// with vector strokes in a drawing handler so it stays crisp on Retina
-    /// menu bars. Not a template image: the color carries the usage signal.
+    /// 16x16 pixel-art starburst: eight arms drawn as hard 1-point blocks on
+    /// a fixed grid for the retro look. Not a template image: the color
+    /// carries the usage signal.
+    private static let starPixelRows = [
+        "................",
+        ".......XX.......",
+        ".......XX.......",
+        "...X...XX...X...",
+        "....X..XX..X....",
+        ".....X.XX.X.....",
+        "......XXXX......",
+        ".XXXXXXXXXXXXXX.",
+        ".XXXXXXXXXXXXXX.",
+        "......XXXX......",
+        ".....X.XX.X.....",
+        "....X..XX..X....",
+        "...X...XX...X...",
+        ".......XX.......",
+        ".......XX.......",
+        "................"
+    ]
+
     static func starImage(color: NSColor) -> NSImage {
+        let rows = starPixelRows
         let size = NSSize(width: 16, height: 16)
-        let image = NSImage(size: size, flipped: false) { rect in
-            let center = NSPoint(x: rect.midX, y: rect.midY)
-            let innerRadius: CGFloat = 1.6
-            let path = NSBezierPath()
-            path.lineWidth = 2.0
-            path.lineCapStyle = .round
-            for arm in 0..<8 {
-                let angle = CGFloat(arm) * (.pi / 4)
-                let outerRadius: CGFloat = arm % 2 == 0 ? 7.0 : 5.6
-                path.move(to: NSPoint(
-                    x: center.x + cos(angle) * innerRadius,
-                    y: center.y + sin(angle) * innerRadius
-                ))
-                path.line(to: NSPoint(
-                    x: center.x + cos(angle) * outerRadius,
-                    y: center.y + sin(angle) * outerRadius
-                ))
+        let image = NSImage(size: size, flipped: true) { _ in
+            color.setFill()
+            for (rowIndex, row) in rows.enumerated() {
+                for (columnIndex, character) in row.enumerated() where character == "X" {
+                    NSRect(x: CGFloat(columnIndex), y: CGFloat(rowIndex), width: 1, height: 1).fill()
+                }
             }
-            color.setStroke()
-            path.stroke()
             return true
         }
         image.isTemplate = false

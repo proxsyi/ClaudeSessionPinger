@@ -200,13 +200,86 @@ final class AppState: ObservableObject {
             )
             usage = fetched
             usageError = nil
+            notifyUsageThresholdsIfNeeded(for: fetched)
         } catch {
             usageError = (error as? UsageError)?.localizedDescription ?? error.localizedDescription
         }
         if let status = await statusCheck {
+            notifyServiceChangeIfNeeded(newStatus: status)
             serviceStatus = status
         }
         isRefreshingUsage = false
+    }
+
+    // MARK: - Usage threshold & service status notifications
+
+    /// Thresholds already notified for the current session window.
+    private var notifiedSessionThresholds: Set<Int> = []
+    /// Thresholds already notified for the current weekly window.
+    private var notifiedWeeklyThresholds: Set<Int> = []
+    /// Reset timestamps last seen -- when these change, a new window has
+    /// started, so its thresholds may fire again.
+    private var lastSessionResetsAt: Date?
+    private var lastWeeklyResetsAt: Date?
+    /// nil until the first status check completes, so launching during an
+    /// outage never fires a spurious outage/recovery notification.
+    private var lastKnownServiceOperational: Bool?
+
+    /// Fires each user-selected usage threshold at most once per window.
+    private func notifyUsageThresholdsIfNeeded(for fetched: ClaudeUsage) {
+        if fetched.sessionResetsAt != lastSessionResetsAt {
+            lastSessionResetsAt = fetched.sessionResetsAt
+            notifiedSessionThresholds.removeAll()
+        }
+        if fetched.weeklyResetsAt != lastWeeklyResetsAt {
+            lastWeeklyResetsAt = fetched.weeklyResetsAt
+            notifiedWeeklyThresholds.removeAll()
+        }
+        if let percent = fetched.sessionPercent {
+            for threshold in settings.sessionUsageThresholds.sorted()
+            where percent >= threshold && !notifiedSessionThresholds.contains(threshold) {
+                notifiedSessionThresholds.insert(threshold)
+                let reset = fetched.sessionResetsAt.map { " Resets at \($0.formatted(date: .omitted, time: .shortened))." } ?? ""
+                sendNotification(
+                    identifier: "usage-session-\(threshold)",
+                    title: "Session usage reached \(threshold)%",
+                    body: "Your 5-hour session window is at \(percent)%.\(reset)"
+                )
+            }
+        }
+        if let percent = fetched.weeklyPercent {
+            for threshold in settings.weeklyUsageThresholds.sorted()
+            where percent >= threshold && !notifiedWeeklyThresholds.contains(threshold) {
+                notifiedWeeklyThresholds.insert(threshold)
+                let reset = fetched.weeklyResetsAt.map { " Resets \($0.formatted(date: .abbreviated, time: .shortened))." } ?? ""
+                sendNotification(
+                    identifier: "usage-weekly-\(threshold)",
+                    title: "Weekly usage reached \(threshold)%",
+                    body: "Your 7-day window is at \(percent)%.\(reset)"
+                )
+            }
+        }
+    }
+
+    /// Notifies when Claude services go down or recover, once per transition.
+    private func notifyServiceChangeIfNeeded(newStatus: ClaudeServiceStatus) {
+        defer { lastKnownServiceOperational = newStatus.operational }
+        guard settings.notifyOnServiceOutage,
+              let wasOperational = lastKnownServiceOperational,
+              wasOperational != newStatus.operational else { return }
+        if newStatus.operational {
+            sendNotification(
+                identifier: "service-recovered",
+                title: "Claude services recovered",
+                body: "All Claude services are operational again."
+            )
+        } else {
+            sendNotification(
+                identifier: "service-outage",
+                title: "Claude service issue",
+                body: newStatus.message
+            )
+        }
     }
 
     func checkForUpdates() async {
@@ -256,11 +329,19 @@ final class AppState: ObservableObject {
     }
 
     private func notifyFailureIfNeeded(message: String) {
-        guard settings.notifyOnFailure, runningInsideProperAppBundle else { return }
+        guard settings.notifyOnFailure else { return }
+        sendNotification(identifier: UUID().uuidString, title: "Session ping failed", body: message)
+    }
+
+    /// Shared local-notification helper. Stable identifiers let the system
+    /// coalesce repeats of the same alert instead of stacking duplicates.
+    private func sendNotification(identifier: String, title: String, body: String) {
+        guard runningInsideProperAppBundle else { return }
         let content = UNMutableNotificationContent()
-        content.title = "Session ping failed"
-        content.body = message
-        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        content.title = title
+        content.body = body
+        content.sound = .default
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
     }
 }

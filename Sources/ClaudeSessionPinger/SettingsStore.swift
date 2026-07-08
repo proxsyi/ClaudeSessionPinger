@@ -1,6 +1,11 @@
 import Foundation
 
 final class SettingsStore: ObservableObject {
+    /// Usage-alert percentages the user can pick from in Settings.
+    static let availableThresholds = [50, 75, 90, 95]
+    static let defaultSessionThresholds = [75, 90]
+    static let defaultWeeklyThresholds = [75, 90]
+
     static let defaultSlots: [ScheduleSlot] = [
         ScheduleSlot(hour: 5, minute: 0),
         ScheduleSlot(hour: 10, minute: 0),
@@ -15,6 +20,9 @@ final class SettingsStore: ObservableObject {
         static let scheduleSlots = "scheduleSlots"
         static let launchAtLogin = "launchAtLogin"
         static let notifyOnFailure = "notifyOnFailure"
+        static let notifyOnServiceOutage = "notifyOnServiceOutage"
+        static let sessionUsageThresholds = "sessionUsageThresholds"
+        static let weeklyUsageThresholds = "weeklyUsageThresholds"
     }
 
     @Published var organizationID: String {
@@ -39,6 +47,23 @@ final class SettingsStore: ObservableObject {
     @Published var notifyOnFailure: Bool {
         didSet { UserDefaults.standard.set(notifyOnFailure, forKey: Keys.notifyOnFailure) }
     }
+    @Published var notifyOnServiceOutage: Bool {
+        didSet { UserDefaults.standard.set(notifyOnServiceOutage, forKey: Keys.notifyOnServiceOutage) }
+    }
+    @Published var sessionUsageThresholds: [Int] {
+        didSet {
+            if let data = try? JSONEncoder().encode(sessionUsageThresholds) {
+                UserDefaults.standard.set(data, forKey: Keys.sessionUsageThresholds)
+            }
+        }
+    }
+    @Published var weeklyUsageThresholds: [Int] {
+        didSet {
+            if let data = try? JSONEncoder().encode(weeklyUsageThresholds) {
+                UserDefaults.standard.set(data, forKey: Keys.weeklyUsageThresholds)
+            }
+        }
+    }
     @Published var sessionKey: String {
         didSet {
             if sessionKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -57,6 +82,19 @@ final class SettingsStore: ObservableObject {
         message = defaults.string(forKey: Keys.message) ?? "Say 1"
         launchAtLogin = defaults.bool(forKey: Keys.launchAtLogin)
         notifyOnFailure = defaults.object(forKey: Keys.notifyOnFailure) == nil ? true : defaults.bool(forKey: Keys.notifyOnFailure)
+        notifyOnServiceOutage = defaults.object(forKey: Keys.notifyOnServiceOutage) == nil ? true : defaults.bool(forKey: Keys.notifyOnServiceOutage)
+        if let data = defaults.data(forKey: Keys.sessionUsageThresholds),
+           let decoded = try? JSONDecoder().decode([Int].self, from: data) {
+            sessionUsageThresholds = decoded
+        } else {
+            sessionUsageThresholds = SettingsStore.defaultSessionThresholds
+        }
+        if let data = defaults.data(forKey: Keys.weeklyUsageThresholds),
+           let decoded = try? JSONDecoder().decode([Int].self, from: data) {
+            weeklyUsageThresholds = decoded
+        } else {
+            weeklyUsageThresholds = SettingsStore.defaultWeeklyThresholds
+        }
         sessionKey = KeychainStore.load() ?? ""
         if let data = defaults.data(forKey: Keys.scheduleSlots),
            let decoded = try? JSONDecoder().decode([ScheduleSlot].self, from: data),

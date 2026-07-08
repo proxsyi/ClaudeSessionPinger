@@ -4,8 +4,13 @@ enum ClaudeTheme {
     static let accent = Color(red: 0.80, green: 0.40, blue: 0.27)
     static let textPrimary = Color.primary
     static let textSecondary = Color.secondary
-    static let cornerRadius: CGFloat = 18
-    static let cardCornerRadius: CGFloat = 14
+    static let cornerRadius: CGFloat = 10
+    static let cardCornerRadius: CGFloat = 8
+
+    /// Monospaced "pixel" font used across the UI for the retro look.
+    static func pixelFont(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .monospaced)
+    }
 }
 
 // MARK: - Panels
@@ -138,5 +143,46 @@ extension View {
         } else {
             self.buttonStyle(ClaudeGhostButtonStyle())
         }
+    }
+}
+
+// MARK: - Pixel components
+
+/// Uppercase, tracked, monospaced section header for the pixel look.
+struct PixelSectionHeader: View {
+    let text: String
+
+    var body: some View {
+        Text(text.uppercased())
+            .font(ClaudeTheme.pixelFont(size: 10, weight: .bold))
+            .tracking(1.5)
+            .foregroundColor(ClaudeTheme.accent)
+    }
+}
+
+/// A retro segmented "health bar": chunky square blocks that fill left to
+/// right, sitting on the glass panels so the Liquid Glass shows through the
+/// unfilled blocks.
+struct PixelBar: View {
+    let percent: Int?
+    var blockCount: Int = 20
+    var blockHeight: CGFloat = 7
+    var color: Color
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(0..<blockCount, id: \.self) { index in
+                Rectangle()
+                    .fill(index < filledBlocks ? color : Color.primary.opacity(0.12))
+                    .frame(height: blockHeight)
+            }
+        }
+    }
+
+    private var filledBlocks: Int {
+        guard let percent else { return 0 }
+        let clamped = min(max(percent, 0), 100)
+        // Round up so any nonzero usage lights at least one block.
+        return Int((Double(clamped) / 100 * Double(blockCount)).rounded(.up))
     }
 }

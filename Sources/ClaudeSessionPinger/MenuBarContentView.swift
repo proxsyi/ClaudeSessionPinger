@@ -39,12 +39,13 @@ struct MenuBarContentView: View {
     }
 
     private var header: some View {
-        HStack {
-            Circle()
+        HStack(spacing: 8) {
+            Rectangle()
                 .fill(statusColor)
-                .frame(width: 10, height: 10)
-            Text("Session Pinger")
-                .font(.system(size: 14, weight: .semibold))
+                .frame(width: 8, height: 8)
+            Text("SESSION PINGER")
+                .font(ClaudeTheme.pixelFont(size: 12, weight: .bold))
+                .tracking(2)
                 .foregroundColor(ClaudeTheme.textPrimary)
             Spacer()
         }
@@ -56,23 +57,23 @@ struct MenuBarContentView: View {
                 Image(systemName: "arrow.down.circle.fill")
                     .foregroundColor(.green)
                 Text("Version \(update.version) is available")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(ClaudeTheme.pixelFont(size: 11, weight: .semibold))
                     .foregroundColor(ClaudeTheme.textPrimary)
             }
             if let notes = update.notes, !notes.isEmpty {
                 Text(notes)
-                    .font(.system(size: 11))
+                    .font(ClaudeTheme.pixelFont(size: 10))
                     .foregroundColor(ClaudeTheme.textSecondary)
                     .lineLimit(2)
             }
             if let installError = appState.installUpdateError {
                 Text(installError)
-                    .font(.system(size: 10))
+                    .font(ClaudeTheme.pixelFont(size: 9))
                     .foregroundColor(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack {
-                Button(appState.isInstallingUpdate ? "Installing…" : "Install & Restart") {
+                Button(appState.isInstallingUpdate ? "Installing\u{2026}" : "Install & Restart") {
                     appState.installUpdate()
                 }
                 .claudeGhostButton()
@@ -104,9 +105,7 @@ struct MenuBarContentView: View {
 
     private var usageSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Claude Usage")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(ClaudeTheme.textPrimary)
+            PixelSectionHeader(text: "Claude Usage")
 
             usageRow(
                 title: "Session (5 hour)",
@@ -121,7 +120,7 @@ struct MenuBarContentView: View {
 
             if let error = appState.usageError {
                 Text(error)
-                    .font(.system(size: 10))
+                    .font(ClaudeTheme.pixelFont(size: 9))
                     .foregroundColor(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -132,10 +131,10 @@ struct MenuBarContentView: View {
 
             HStack {
                 Text(lastUpdatedText)
-                    .font(.system(size: 10))
+                    .font(ClaudeTheme.pixelFont(size: 9))
                     .foregroundColor(ClaudeTheme.textSecondary)
                 Spacer()
-                Button(appState.isRefreshingUsage ? "Refreshing…" : "Refresh") {
+                Button(appState.isRefreshingUsage ? "Refreshing\u{2026}" : "Refresh") {
                     Task { await appState.refreshUsage() }
                 }
                 .claudeGhostButton()
@@ -149,35 +148,24 @@ struct MenuBarContentView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(ClaudeTheme.pixelFont(size: 11, weight: .semibold))
                     .foregroundColor(ClaudeTheme.textPrimary)
                 Spacer()
-                if let resetText {
-                    Text(resetText)
-                        .font(.system(size: 10))
-                        .foregroundColor(ClaudeTheme.textSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
+                Text(percent.map { "\($0)%" } ?? "--")
+                    .font(ClaudeTheme.pixelFont(size: 11, weight: .bold))
+                    .foregroundColor(usageBarColor(percent: percent))
             }
-            usageBar(percent: percent)
-            Text(percent.map { "\($0)% used" } ?? "No data yet")
-                .font(.system(size: 11))
-                .foregroundColor(ClaudeTheme.textSecondary)
-        }
-    }
-
-    private func usageBar(percent: Int?) -> some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(Color.primary.opacity(0.12))
-                Capsule()
-                    .fill(usageBarColor(percent: percent))
-                    .frame(width: geo.size.width * CGFloat(min(max(percent ?? 0, 0), 100)) / 100)
+            PixelBar(percent: percent, color: usageBarColor(percent: percent))
+            if let resetText {
+                Text(resetText)
+                    .font(ClaudeTheme.pixelFont(size: 9))
+                    .foregroundColor(ClaudeTheme.textSecondary)
+            } else if percent == nil {
+                Text("No data yet")
+                    .font(ClaudeTheme.pixelFont(size: 9))
+                    .foregroundColor(ClaudeTheme.textSecondary)
             }
         }
-        .frame(height: 5)
     }
 
     private func usageBarColor(percent: Int?) -> Color {
@@ -190,16 +178,16 @@ struct MenuBarContentView: View {
     private var serviceStatusRow: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
-                Circle()
+                Rectangle()
                     .fill(serviceStatusColor)
-                    .frame(width: 8, height: 8)
-                Text(appState.serviceStatus?.message ?? "Checking Claude service status…")
-                    .font(.system(size: 11))
+                    .frame(width: 7, height: 7)
+                Text(appState.serviceStatus?.message ?? "Checking Claude service status\u{2026}")
+                    .font(ClaudeTheme.pixelFont(size: 10))
                     .foregroundColor(ClaudeTheme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Text(serviceStatusDetail)
-                .font(.system(size: 10))
+                .font(ClaudeTheme.pixelFont(size: 9))
                 .foregroundColor(ClaudeTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -213,7 +201,7 @@ struct MenuBarContentView: View {
     private var serviceStatusDetail: String {
         var text = "Tracks claude.ai, Claude Console, Claude API, Claude Code +1"
         if let checked = appState.serviceStatus?.checkedAt {
-            text += " · checked \(relativeTimeText(since: checked))"
+            text += " \u{00B7} checked \(relativeTimeText(since: checked))"
         }
         return text
     }
@@ -245,15 +233,13 @@ struct MenuBarContentView: View {
 
     private var countdownSection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Next session in")
-                .font(.system(size: 11))
-                .foregroundColor(ClaudeTheme.textSecondary)
+            PixelSectionHeader(text: "Next session in")
             Text(countdownText)
-                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .font(ClaudeTheme.pixelFont(size: 22, weight: .bold))
                 .foregroundColor(ClaudeTheme.textPrimary)
             if let next = appState.nextFireDate {
                 Text(next.formatted(date: .omitted, time: .shortened))
-                    .font(.system(size: 11))
+                    .font(ClaudeTheme.pixelFont(size: 10))
                     .foregroundColor(ClaudeTheme.textSecondary)
             }
         }
@@ -276,27 +262,27 @@ struct MenuBarContentView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Success rate")
-                    .font(.system(size: 11))
+                    .font(ClaudeTheme.pixelFont(size: 10))
                     .foregroundColor(ClaudeTheme.textSecondary)
                 Spacer()
                 Text(successRateText)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(ClaudeTheme.pixelFont(size: 11, weight: .semibold))
                     .foregroundColor(ClaudeTheme.textPrimary)
             }
             HStack {
                 Text("Last result")
-                    .font(.system(size: 11))
+                    .font(ClaudeTheme.pixelFont(size: 10))
                     .foregroundColor(ClaudeTheme.textSecondary)
                 Spacer()
                 Text(lastResultText)
-                    .font(.system(size: 12))
+                    .font(ClaudeTheme.pixelFont(size: 10))
                     .foregroundColor(ClaudeTheme.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
             if let error = appState.lastError {
                 Text(error)
-                    .font(.system(size: 11))
+                    .font(ClaudeTheme.pixelFont(size: 10))
                     .foregroundColor(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -310,14 +296,14 @@ struct MenuBarContentView: View {
     }
 
     private var lastResultText: String {
-        guard let last = stats.lastRecord else { return "—" }
+        guard let last = stats.lastRecord else { return "\u{2014}" }
         return last.summary
     }
 
     private var actionsSection: some View {
         VStack(spacing: 8) {
             Button(action: { appState.pingNow() }) {
-                Text(appState.status == .sending ? "Sending…" : "Ping now")
+                Text(appState.status == .sending ? "Sending\u{2026}" : "Ping now")
             }
             .claudePrimaryButton()
             .disabled(appState.status == .sending)

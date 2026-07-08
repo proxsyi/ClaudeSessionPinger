@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.7.0
+
+- Full pixel/retro restyle layered on the existing Liquid Glass panels, keeping the Claude color palette: monospaced pixel typography, uppercase tracked section headers, square status dots, and chunky segmented "health bar" usage meters. The menu bar star is now true 16x16 pixel art, still color-coded by session usage (green/yellow/red).
+- Settings redesigned into glass sections -- Account, Ping, Notifications, App, Updates -- to match everything the app now does.
+- Logging in now always captures everything the app needs: if the organization cookie is slow to appear, the organization ID is fetched straight from claude.ai with the new session, and usage refreshes immediately after signing in.
+- New notifications: Claude service outage and recovery alerts (toggleable), plus customizable session and weekly usage alerts -- pick any of the 50/75/90/95% thresholds in Settings, each firing at most once per usage window.
+- All notifications now play a sound.
+
 ## v1.6.0
 
 - Added ClaudeUsageBar-style Claude usage tracking to the menu bar popover: session (5-hour) and weekly (7-day) usage bars with reset times, read from the same claude.ai endpoint that powers claude.ai/settings/usage using the session key the app already stores, plus a Claude service status line and a manual Refresh button. Usage auto-refreshes every 5 minutes and when the popover opens.

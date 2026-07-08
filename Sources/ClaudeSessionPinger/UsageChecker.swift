@@ -124,6 +124,41 @@ enum UsageChecker {
         return nil
     }
 
+    /// Fetches the account's organization UUID straight from claude.ai using
+    /// the captured session key. Used right after login as a fallback when
+    /// the `lastActiveOrg` cookie hasn't been set yet, so signing in always
+    /// captures everything the app needs. Never throws -- returns nil and
+    /// lets the manual Settings field handle it.
+    static func fetchOrganizationID(sessionKey: String) async -> String? {
+        let trimmedKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty, let url = URL(string: "https://claude.ai/api/organizations") else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("https://claude.ai", forHTTPHeaderField: "Origin")
+        request.setValue("https://claude.ai/settings/usage", forHTTPHeaderField: "Referer")
+        request.setValue("sessionKey=\(trimmedKey)", forHTTPHeaderField: "Cookie")
+        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)", forHTTPHeaderField: "User-Agent")
+        guard
+            let (data, response) = try? await URLSession.shared.data(for: request),
+            let http = response as? HTTPURLResponse,
+            (200...299).contains(http.statusCode),
+            let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+        else { return nil }
+        // Some responses are the organizations themselves; others wrap them
+        // in membership objects. Prefer an org with chat capability.
+        func uuid(of item: [String: Any]) -> String? {
+            (item["uuid"] as? String) ?? ((item["organization"] as? [String: Any])?["uuid"] as? String)
+        }
+        func capabilities(of item: [String: Any]) -> [String] {
+            (item["capabilities"] as? [String])
+                ?? ((item["organization"] as? [String: Any])?["capabilities"] as? [String])
+                ?? []
+        }
+        let preferred = array.first { capabilities(of: $0).contains("chat") } ?? array.first
+        return preferred.flatMap { uuid(of: $0) }
+    }
+
     // MARK: - Tolerant JSON parsing
 
     private struct UsageWindow {
