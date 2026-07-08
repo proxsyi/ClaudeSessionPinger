@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.8.0
+
+- Settings reorganized: the organization ID and manual session key now live in a collapsed "Keys" area under Account -- they're captured automatically at login, so they stay out of the way.
+- Logging in now captures every claude.ai cookie (not just the session key) and stores them in the keychain; all requests -- pings, usage, model detection, org lookup -- send the full cookie set, exactly like the browser session.
+- Automatic model selection: the app detects which Claude models the account can use, prefers the lightest one, and switches automatically if claude.ai rejects a model. A toggle in Settings switches back to a fixed manual model slug.
+- Added a "Send test notification" button in Settings, with a hint when macOS has notifications turned off for the app.
+- Auto-update is now a toggle: when on, new releases install themselves as soon as the daily check finds one (each version is attempted once, so a failed install can't loop).
+- The Settings window is now real behind-window Liquid Glass driven by the system's material settings (including Reduce Transparency), with a transparent title bar.
+- Fixed scrolled Settings content drawing over the Test connection/Cancel/Save footer buttons.
+
 ## v1.7.0
 
 - Full pixel/retro restyle layered on the existing Liquid Glass panels, keeping the Claude color palette: monospaced pixel typography, uppercase tracked section headers, square status dots, and chunky segmented "health bar" usage meters. The menu bar star is now true 16x16 pixel art, still color-coded by session usage (green/yellow/red).

@@ -6,6 +6,7 @@ struct SettingsView: View {
 
     @State private var sessionKeyInput = ""
     @State private var organizationID = ""
+    @State private var autoModel = true
     @State private var model = ""
     @State private var message = ""
     @State private var slots: [ScheduleSlot] = []
@@ -14,6 +15,7 @@ struct SettingsView: View {
     @State private var notifyOnServiceOutage = true
     @State private var sessionThresholds: Set<Int> = []
     @State private var weeklyThresholds: Set<Int> = []
+    @State private var autoUpdate = true
     @State private var testResult: String?
     @State private var isTesting = false
     @State private var showingLogin = false
@@ -47,18 +49,25 @@ struct SettingsView: View {
                 }
                 .padding(20)
             }
+            // Keep scrolled glass panels from drawing over the footer bar.
+            .clipped()
 
             Divider()
 
             footer
+                .background(.bar)
         }
         .claudeGlassContainer()
         .frame(width: 400, height: 640)
-        .background(.regularMaterial)
+        .background(WindowGlassBackground().ignoresSafeArea())
         .onAppear(perform: loadCurrentValues)
         .sheet(isPresented: $showingLogin) {
-            CookieLoginSheet { sessionKey, organizationIDFromCookie in
-                handleLoginCapture(sessionKey: sessionKey, organizationIDFromCookie: organizationIDFromCookie)
+            CookieLoginSheet { sessionKey, organizationIDFromCookie, cookieHeader in
+                handleLoginCapture(
+                    sessionKey: sessionKey,
+                    organizationIDFromCookie: organizationIDFromCookie,
+                    cookieHeader: cookieHeader
+                )
             }
         }
     }
@@ -75,7 +84,7 @@ struct SettingsView: View {
             .claudePrimaryButton()
 
             if loginCaptured {
-                Text("Signed in -- session captured automatically.")
+                Text("Signed in -- session and cookies captured automatically.")
                     .font(ClaudeTheme.pixelFont(size: 10))
                     .foregroundColor(ClaudeTheme.accent)
             } else if !settings.sessionKey.isEmpty {
@@ -89,34 +98,50 @@ struct SettingsView: View {
                     .font(ClaudeTheme.pixelFont(size: 10))
                     .foregroundColor(ClaudeTheme.textSecondary)
             } else if loginCaptured && organizationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text("Couldn't detect your organization ID automatically. Open claude.ai in a browser, open Dev Tools \u{2192} Application \u{2192} Cookies, and paste the value of \"lastActiveOrg\" below.")
+                Text("Couldn't detect your organization ID automatically. Open claude.ai in a browser, open Dev Tools \u{2192} Application \u{2192} Cookies, and paste the value of \"lastActiveOrg\" under Keys below.")
                     .font(ClaudeTheme.pixelFont(size: 10))
                     .foregroundColor(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Organization ID")
-                    .font(ClaudeTheme.pixelFont(size: 10))
-                    .foregroundColor(ClaudeTheme.textSecondary)
-                TextField("Filled automatically on login", text: $organizationID)
-                    .textFieldStyle(.roundedBorder)
-            }
+            keysDisclosure
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 
-            DisclosureGroup("Advanced: paste session key manually") {
+    /// Collapsed by default: the organization ID and session key are captured
+    /// automatically at login, so these fields exist only for manual fixes.
+    private var keysDisclosure: some View {
+        DisclosureGroup("Keys") {
+            VStack(alignment: .leading, spacing: 8) {
                 VStack(alignment: .leading, spacing: 4) {
+                    Text("Organization ID")
+                        .font(ClaudeTheme.pixelFont(size: 10))
+                        .foregroundColor(ClaudeTheme.textSecondary)
+                    TextField("Filled automatically on login", text: $organizationID)
+                        .textFieldStyle(.roundedBorder)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Session key")
+                        .font(ClaudeTheme.pixelFont(size: 10))
+                        .foregroundColor(ClaudeTheme.textSecondary)
                     SecureField(settings.sessionKey.isEmpty ? "Paste sessionKey cookie" : settings.maskedSessionKey, text: $sessionKeyInput)
                         .textFieldStyle(.roundedBorder)
                     Text("Only needed if the built-in login doesn't work for your account.")
                         .font(ClaudeTheme.pixelFont(size: 9))
                         .foregroundColor(ClaudeTheme.textSecondary)
                 }
-                .padding(.top, 4)
+                Text(settings.cookieHeader.isEmpty
+                    ? "No login cookies captured yet -- use Log in with Claude above."
+                    : "Full login cookies captured and stored in the keychain.")
+                    .font(ClaudeTheme.pixelFont(size: 9))
+                    .foregroundColor(ClaudeTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .font(ClaudeTheme.pixelFont(size: 10))
-            .foregroundColor(ClaudeTheme.textSecondary)
+            .padding(.top, 6)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .font(ClaudeTheme.pixelFont(size: 10, weight: .semibold))
+        .foregroundColor(ClaudeTheme.textSecondary)
     }
 
     private var pingSection: some View {
@@ -124,11 +149,20 @@ struct SettingsView: View {
             PixelSectionHeader(text: "Ping")
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("Model slug")
-                    .font(ClaudeTheme.pixelFont(size: 10))
-                    .foregroundColor(ClaudeTheme.textSecondary)
-                TextField("claude-haiku-4-5-...", text: $model)
-                    .textFieldStyle(.roundedBorder)
+                Toggle("Automatic model (recommended)", isOn: $autoModel)
+                    .font(ClaudeTheme.pixelFont(size: 11))
+                if autoModel {
+                    Text(autoModelCaption)
+                        .font(ClaudeTheme.pixelFont(size: 9))
+                        .foregroundColor(ClaudeTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("Model slug")
+                        .font(ClaudeTheme.pixelFont(size: 10))
+                        .foregroundColor(ClaudeTheme.textSecondary)
+                    TextField("claude-haiku-4-5-...", text: $model)
+                        .textFieldStyle(.roundedBorder)
+                }
             }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -172,6 +206,15 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private var autoModelCaption: String {
+        let detected = appState.availableModels
+        let current = appState.activeModel ?? detected.first ?? UsageChecker.fallbackModels[0]
+        if detected.isEmpty {
+            return "Detects the models your account can use and switches automatically. Currently: \(current)"
+        }
+        return "Detected \(detected.count) available model\(detected.count == 1 ? "" : "s"). Currently: \(current)"
+    }
+
     private var notificationsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             PixelSectionHeader(text: "Notifications")
@@ -191,6 +234,17 @@ struct SettingsView: View {
                 subtitle: "Notify when the 7-day window reaches:",
                 selection: $weeklyThresholds
             )
+
+            Button("Send test notification") {
+                appState.sendTestNotification()
+            }
+            .claudeGhostButton()
+            if let status = appState.notificationTestStatus {
+                Text(status)
+                    .font(ClaudeTheme.pixelFont(size: 9))
+                    .foregroundColor(ClaudeTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -241,8 +295,10 @@ struct SettingsView: View {
     }
 
     private var updatesSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             PixelSectionHeader(text: "Updates")
+            Toggle("Install updates automatically", isOn: $autoUpdate)
+                .font(ClaudeTheme.pixelFont(size: 11))
             Text("Current version: \(currentVersion)")
                 .font(ClaudeTheme.pixelFont(size: 10))
                 .foregroundColor(ClaudeTheme.textSecondary)
@@ -321,12 +377,14 @@ struct SettingsView: View {
         return String(format: "%d:%02d %@", displayHour, minute, period)
     }
 
-    /// Login finished: store the session, then make sure the organization ID
-    /// is captured too -- from the cookie when available, otherwise fetched
-    /// straight from claude.ai -- and refresh usage right away so the popover
-    /// fills in without waiting for the next timer tick.
-    private func handleLoginCapture(sessionKey: String, organizationIDFromCookie: String?) {
+    /// Login finished: store the session and the full cookie header, then
+    /// make sure the organization ID is captured too -- from the cookie when
+    /// available, otherwise fetched straight from claude.ai -- and refresh
+    /// usage right away so the popover fills in without waiting for the next
+    /// timer tick.
+    private func handleLoginCapture(sessionKey: String, organizationIDFromCookie: String?, cookieHeader: String) {
         settings.sessionKey = sessionKey
+        settings.cookieHeader = cookieHeader
         sessionKeyInput = ""
         loginCaptured = true
         testResult = nil
@@ -338,7 +396,7 @@ struct SettingsView: View {
         }
         isFetchingOrganization = true
         Task {
-            let fetched = await UsageChecker.fetchOrganizationID(sessionKey: sessionKey)
+            let fetched = await UsageChecker.fetchOrganizationID(sessionKey: sessionKey, cookieHeader: cookieHeader)
             await MainActor.run {
                 isFetchingOrganization = false
                 if let fetched, !fetched.isEmpty {
@@ -352,6 +410,7 @@ struct SettingsView: View {
 
     private func loadCurrentValues() {
         organizationID = settings.organizationID
+        autoModel = settings.autoModel
         model = settings.model
         message = settings.message
         slots = settings.scheduleSlots
@@ -360,6 +419,7 @@ struct SettingsView: View {
         notifyOnServiceOutage = settings.notifyOnServiceOutage
         sessionThresholds = Set(settings.sessionUsageThresholds)
         weeklyThresholds = Set(settings.weeklyUsageThresholds)
+        autoUpdate = settings.autoUpdateEnabled
         sessionKeyInput = ""
         testResult = nil
     }
@@ -370,7 +430,11 @@ struct SettingsView: View {
             settings.sessionKey = trimmedSessionKeyInput
         }
         settings.organizationID = organizationID.trimmingCharacters(in: .whitespacesAndNewlines)
-        settings.model = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        settings.autoModel = autoModel
+        let trimmedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !autoModel {
+            settings.model = trimmedModel.isEmpty ? UsageChecker.fallbackModels[0] : trimmedModel
+        }
         let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
         settings.message = trimmedMessage.isEmpty ? "Say 1" : trimmedMessage
         settings.scheduleSlots = slots.isEmpty ? SettingsStore.defaultSlots : slots
@@ -379,6 +443,7 @@ struct SettingsView: View {
         settings.notifyOnServiceOutage = notifyOnServiceOutage
         settings.sessionUsageThresholds = sessionThresholds.sorted()
         settings.weeklyUsageThresholds = weeklyThresholds.sorted()
+        settings.autoUpdateEnabled = autoUpdate
         LoginItemManager.setEnabled(launchAtLogin)
         appState.rescheduleTimer()
         appState.closeSettingsWindow?()
@@ -387,17 +452,25 @@ struct SettingsView: View {
     private func runTest() {
         isTesting = true
         testResult = nil
-        let keyToTest = sessionKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? settings.sessionKey : sessionKeyInput
+        let trimmedInput = sessionKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let keyToTest = trimmedInput.isEmpty ? settings.sessionKey : trimmedInput
         let orgToTest = organizationID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let modelToTest = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        let manualModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        let modelToTest = autoModel
+            ? (appState.activeModel ?? appState.availableModels.first ?? UsageChecker.fallbackModels[0])
+            : manualModel
         let messageToTest = message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Say 1" : message
+        // A manually pasted key can't be paired with the stored cookies (they
+        // belong to the previous session), so fall back to just that key.
+        let cookieHeaderToTest = trimmedInput.isEmpty ? settings.effectiveCookieHeader : "sessionKey=\(keyToTest)"
         Task {
             do {
                 let outcome = try await ClaudeClient.sendPing(
                     sessionKey: keyToTest,
                     organizationID: orgToTest,
                     model: modelToTest,
-                    message: messageToTest
+                    message: messageToTest,
+                    cookieHeader: cookieHeaderToTest
                 )
                 await MainActor.run {
                     testResult = outcome.matchedExpected ? "Success: got expected reply" : "Connected, but reply was: \(outcome.replyText)"

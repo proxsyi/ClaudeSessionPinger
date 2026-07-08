@@ -16,6 +16,12 @@ final class AppState: ObservableObject {
     @Published var usageError: String?
     @Published var isRefreshingUsage = false
     @Published var serviceStatus: ClaudeServiceStatus?
+    /// Model slugs detected as available for this account (empty until fetched).
+    @Published var availableModels: [String] = []
+    /// The model the last successful ping actually used.
+    @Published var activeModel: String?
+    /// Result line for the Settings "Send test notification" button.
+    @Published var notificationTestStatus: String?
 
     let settings: SettingsStore
     let stats: StatsStore
@@ -90,16 +96,21 @@ final class AppState: ObservableObject {
         let maxAttempts = 3
         var attempt = 0
         var finished = false
+        let candidates = modelCandidates()
+        var modelIndex = 0
 
         while attempt < maxAttempts && !finished {
             attempt += 1
+            let modelToUse = candidates[min(modelIndex, candidates.count - 1)]
             do {
                 let outcome = try await ClaudeClient.sendPing(
                     sessionKey: settings.sessionKey,
                     organizationID: settings.organizationID,
-                    model: settings.model,
-                    message: settings.message
+                    model: modelToUse,
+                    message: settings.message,
+                    cookieHeader: settings.effectiveCookieHeader
                 )
+                activeModel = modelToUse
                 lastPingDate = Date()
                 status = outcome.matchedExpected ? .success : .failure
                 let summary = outcome.matchedExpected ? "Got expected reply" : "Unexpected reply: \(outcome.replyText)"
@@ -111,6 +122,13 @@ final class AppState: ObservableObject {
                 rescheduleTimer()
                 finished = true
             } catch let error as PingError {
+                if isModelUnavailable(error), modelIndex + 1 < candidates.count {
+                    // The account can't use this model right now -- move on to
+                    // the next available one without burning a retry attempt.
+                    modelIndex += 1
+                    attempt -= 1
+                    continue
+                }
                 if attempt >= maxAttempts || !isRetryable(error) {
                     lastPingDate = Date()
                     status = .failure
@@ -146,6 +164,32 @@ final class AppState: ObservableObject {
         default:
             return false
         }
+    }
+
+    /// Ordered model slugs to try for a ping. Manual mode pins the user's
+    /// model; automatic mode uses the detected list (or the known fallbacks),
+    /// lightest model first.
+    private func modelCandidates() -> [String] {
+        guard settings.autoModel else { return [settings.model] }
+        let pool = availableModels.isEmpty ? UsageChecker.fallbackModels : availableModels
+        return pool.sorted { modelRank($0) < modelRank($1) }
+    }
+
+    private func modelRank(_ slug: String) -> Int {
+        if slug.contains("haiku") { return 0 }
+        if slug.contains("sonnet") { return 1 }
+        if slug.contains("opus") { return 2 }
+        return 3
+    }
+
+    /// True when the server rejected the request in a way that points at the
+    /// model slug itself (unknown/retired/unavailable model), so trying the
+    /// next candidate makes sense.
+    private func isModelUnavailable(_ error: PingError) -> Bool {
+        if case .serverError(let code, let body) = error {
+            return (400...499).contains(code) && body.lowercased().contains("model")
+        }
+        return false
     }
 
     private var updateTimer: Timer?
@@ -196,7 +240,8 @@ final class AppState: ObservableObject {
         do {
             let fetched = try await UsageChecker.fetchUsage(
                 sessionKey: settings.sessionKey,
-                organizationID: settings.organizationID
+                organizationID: settings.organizationID,
+                cookieHeader: settings.effectiveCookieHeader
             )
             usage = fetched
             usageError = nil
@@ -207,6 +252,16 @@ final class AppState: ObservableObject {
         if let status = await statusCheck {
             notifyServiceChangeIfNeeded(newStatus: status)
             serviceStatus = status
+        }
+        if settings.autoModel {
+            let models = await UsageChecker.fetchAvailableModels(
+                sessionKey: settings.sessionKey,
+                organizationID: settings.organizationID,
+                cookieHeader: settings.effectiveCookieHeader
+            )
+            if !models.isEmpty {
+                availableModels = models
+            }
         }
         isRefreshingUsage = false
     }
@@ -282,6 +337,9 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Versions the auto-updater has already tried to install this run.
+    private var autoUpdateAttemptedVersions: Set<String> = []
+
     func checkForUpdates() async {
         guard !isCheckingForUpdates else { return }
         isCheckingForUpdates = true
@@ -293,6 +351,12 @@ final class AppState: ObservableObject {
             availableUpdate = nil
         case .updateAvailable(let info):
             availableUpdate = info
+            // Auto-update: install the new release as soon as it's seen, but
+            // only try each version once so a failing install can't loop.
+            if settings.autoUpdateEnabled && !autoUpdateAttemptedVersions.contains(info.version) {
+                autoUpdateAttemptedVersions.insert(info.version)
+                installUpdate()
+            }
         case .failed(let message):
             availableUpdate = nil
             updateCheckError = message
@@ -313,6 +377,32 @@ final class AppState: ObservableObject {
             } catch {
                 self.isInstallingUpdate = false
                 self.installUpdateError = (error as? UpdaterError)?.localizedDescription ?? error.localizedDescription
+            }
+        }
+    }
+
+    /// Sends a test notification so notification delivery can be verified
+    /// from Settings, surfacing a hint when macOS has alerts turned off.
+    func sendTestNotification() {
+        notificationTestStatus = nil
+        guard runningInsideProperAppBundle else {
+            notificationTestStatus = "Run the installed app bundle to test notifications."
+            return
+        }
+        UNUserNotificationCenter.current().getNotificationSettings { [weak self] notificationSettings in
+            let status = notificationSettings.authorizationStatus
+            Task { @MainActor in
+                guard let self else { return }
+                if status == .denied {
+                    self.notificationTestStatus = "Notifications are turned off for Session Pinger in System Settings > Notifications."
+                } else {
+                    self.sendNotification(
+                        identifier: "test-notification",
+                        title: "Test notification",
+                        body: "Notifications are working."
+                    )
+                    self.notificationTestStatus = "Test notification sent -- check the top-right of your screen."
+                }
             }
         }
     }

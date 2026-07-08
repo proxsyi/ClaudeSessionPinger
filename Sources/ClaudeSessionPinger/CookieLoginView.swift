@@ -11,7 +11,7 @@ enum CookieLoginState: Equatable {
 }
 
 struct CookieLoginRepresentable: NSViewRepresentable {
-    let onCookiesCaptured: (_ sessionKey: String, _ organizationID: String?) -> Void
+    let onCookiesCaptured: (_ sessionKey: String, _ organizationID: String?, _ cookieHeader: String) -> Void
     let onStateChange: (CookieLoginState) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -47,7 +47,7 @@ struct CookieLoginRepresentable: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindowDelegate {
-        private let onCookiesCaptured: (String, String?) -> Void
+        private let onCookiesCaptured: (String, String?, String) -> Void
         private let onStateChange: (CookieLoginState) -> Void
         private weak var webView: WKWebView?
         private var pollTimer: Timer?
@@ -60,7 +60,7 @@ struct CookieLoginRepresentable: NSViewRepresentable {
         // session with no organization ID at all.
         private let orgCookieGracePeriod: TimeInterval = 8
 
-        init(onCookiesCaptured: @escaping (String, String?) -> Void, onStateChange: @escaping (CookieLoginState) -> Void) {
+        init(onCookiesCaptured: @escaping (String, String?, String) -> Void, onStateChange: @escaping (CookieLoginState) -> Void) {
             self.onCookiesCaptured = onCookiesCaptured
             self.onStateChange = onStateChange
         }
@@ -191,8 +191,14 @@ struct CookieLoginRepresentable: NSViewRepresentable {
                 self.stopPolling()
                 let sessionValue = sessionCookie.value
                 let orgValue = hasOrg ? orgCookie?.value : nil
+                // Capture every claude.ai cookie as a ready-to-send Cookie
+                // header so the app's requests carry exactly what the
+                // browser session had, not just the session key.
+                let header = claudeCookies
+                    .map { "\($0.name)=\($0.value)" }
+                    .joined(separator: "; ")
                 DispatchQueue.main.async {
-                    self.onCookiesCaptured(sessionValue, orgValue)
+                    self.onCookiesCaptured(sessionValue, orgValue, header)
                 }
             }
         }
@@ -205,7 +211,7 @@ struct CookieLoginRepresentable: NSViewRepresentable {
 
 struct CookieLoginSheet: View {
     @Environment(\.dismiss) private var dismiss
-    let onComplete: (_ sessionKey: String, _ organizationID: String?) -> Void
+    let onComplete: (_ sessionKey: String, _ organizationID: String?, _ cookieHeader: String) -> Void
 
     @State private var didFinish = false
     @State private var loginState: CookieLoginState = .loading
@@ -257,10 +263,10 @@ struct CookieLoginSheet: View {
                     .padding(.top, 8)
                     .fixedSize(horizontal: false, vertical: true)
                 CookieLoginRepresentable(
-                    onCookiesCaptured: { sessionKey, organizationID in
+                    onCookiesCaptured: { sessionKey, organizationID, cookieHeader in
                         guard !didFinish else { return }
                         didFinish = true
-                        onComplete(sessionKey, organizationID)
+                        onComplete(sessionKey, organizationID, cookieHeader)
                         dismiss()
                     },
                     onStateChange: { state in

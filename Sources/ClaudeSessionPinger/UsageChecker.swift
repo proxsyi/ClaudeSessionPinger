@@ -45,7 +45,7 @@ enum UsageError: Error, LocalizedError {
 /// by ClaudeUsageBar and similar menu bar trackers), authenticated with the
 /// session key cookie this app already stores for pinging.
 enum UsageChecker {
-    static func fetchUsage(sessionKey: String, organizationID: String) async throws -> ClaudeUsage {
+    static func fetchUsage(sessionKey: String, organizationID: String, cookieHeader: String? = nil) async throws -> ClaudeUsage {
         let trimmedKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedOrg = organizationID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedKey.isEmpty, !trimmedOrg.isEmpty else {
@@ -59,7 +59,7 @@ enum UsageChecker {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("https://claude.ai", forHTTPHeaderField: "Origin")
         request.setValue("https://claude.ai/settings/usage", forHTTPHeaderField: "Referer")
-        request.setValue("sessionKey=\(trimmedKey)", forHTTPHeaderField: "Cookie")
+        request.setValue((cookieHeader?.isEmpty == false) ? cookieHeader! : "sessionKey=\(trimmedKey)", forHTTPHeaderField: "Cookie")
         request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)", forHTTPHeaderField: "User-Agent")
 
         let data: Data
@@ -129,7 +129,7 @@ enum UsageChecker {
     /// the `lastActiveOrg` cookie hasn't been set yet, so signing in always
     /// captures everything the app needs. Never throws -- returns nil and
     /// lets the manual Settings field handle it.
-    static func fetchOrganizationID(sessionKey: String) async -> String? {
+    static func fetchOrganizationID(sessionKey: String, cookieHeader: String? = nil) async -> String? {
         let trimmedKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedKey.isEmpty, let url = URL(string: "https://claude.ai/api/organizations") else { return nil }
         var request = URLRequest(url: url)
@@ -137,7 +137,7 @@ enum UsageChecker {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("https://claude.ai", forHTTPHeaderField: "Origin")
         request.setValue("https://claude.ai/settings/usage", forHTTPHeaderField: "Referer")
-        request.setValue("sessionKey=\(trimmedKey)", forHTTPHeaderField: "Cookie")
+        request.setValue((cookieHeader?.isEmpty == false) ? cookieHeader! : "sessionKey=\(trimmedKey)", forHTTPHeaderField: "Cookie")
         request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)", forHTTPHeaderField: "User-Agent")
         guard
             let (data, response) = try? await URLSession.shared.data(for: request),
@@ -157,6 +157,56 @@ enum UsageChecker {
         }
         let preferred = array.first { capabilities(of: $0).contains("chat") } ?? array.first
         return preferred.flatMap { uuid(of: $0) }
+    }
+
+    /// Known model slugs, cheapest first, used when the live list can't be
+    /// fetched so automatic selection always has something to try.
+    static let fallbackModels = [
+        "claude-haiku-4-5-20251001",
+        "claude-sonnet-4-5-20250929",
+        "claude-opus-4-1-20250805"
+    ]
+
+    /// Fetches the model slugs available to this account from claude.ai.
+    /// The endpoint is internal and undocumented, so parsing is deliberately
+    /// tolerant: any "claude-..." string found in the response counts,
+    /// whether the payload is a bare array, a {"models": [...]} wrapper, or
+    /// objects keyed "model"/"id"/"slug". Never throws -- returns [] when
+    /// nothing could be read, and callers fall back to `fallbackModels`.
+    static func fetchAvailableModels(sessionKey: String, organizationID: String, cookieHeader: String? = nil) async -> [String] {
+        let trimmedKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedOrg = organizationID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty, !trimmedOrg.isEmpty,
+              let url = URL(string: "https://claude.ai/api/organizations/\(trimmedOrg)/models") else { return [] }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("https://claude.ai", forHTTPHeaderField: "Origin")
+        request.setValue("https://claude.ai/new", forHTTPHeaderField: "Referer")
+        request.setValue((cookieHeader?.isEmpty == false) ? cookieHeader! : "sessionKey=\(trimmedKey)", forHTTPHeaderField: "Cookie")
+        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)", forHTTPHeaderField: "User-Agent")
+        guard
+            let (data, response) = try? await URLSession.shared.data(for: request),
+            let http = response as? HTTPURLResponse,
+            (200...299).contains(http.statusCode),
+            let json = try? JSONSerialization.jsonObject(with: data)
+        else { return [] }
+        var slugs: [String] = []
+        func harvest(_ value: Any) {
+            if let text = value as? String {
+                if text.hasPrefix("claude-"), !slugs.contains(text) {
+                    slugs.append(text)
+                }
+            } else if let array = value as? [Any] {
+                array.forEach { harvest($0) }
+            } else if let dict = value as? [String: Any] {
+                for key in ["models", "model", "id", "slug", "data"] where dict[key] != nil {
+                    harvest(dict[key]!)
+                }
+            }
+        }
+        harvest(json)
+        return slugs
     }
 
     // MARK: - Tolerant JSON parsing

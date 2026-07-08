@@ -6,6 +6,7 @@ enum ClaudeClient {
         organizationID: String,
         model: String,
         message: String,
+        cookieHeader: String? = nil,
         timeoutSeconds: TimeInterval = 30
     ) async throws -> PingOutcome {
         let trimmedKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -23,7 +24,7 @@ enum ClaudeClient {
         var createRequest = URLRequest(url: createURL)
         createRequest.httpMethod = "POST"
         createRequest.timeoutInterval = timeoutSeconds
-        applyCommonHeaders(&createRequest, sessionKey: trimmedKey)
+        applyCommonHeaders(&createRequest, sessionKey: trimmedKey, cookieHeader: cookieHeader)
         createRequest.httpBody = try JSONSerialization.data(withJSONObject: ["uuid": conversationID, "name": ""])
 
         let (createData, createResponse) = try await perform(createRequest)
@@ -36,7 +37,7 @@ enum ClaudeClient {
         var completionRequest = URLRequest(url: completionURL)
         completionRequest.httpMethod = "POST"
         completionRequest.timeoutInterval = timeoutSeconds
-        applyCommonHeaders(&completionRequest, sessionKey: trimmedKey)
+        applyCommonHeaders(&completionRequest, sessionKey: trimmedKey, cookieHeader: cookieHeader)
         let payload: [String: Any] = [
             "prompt": message,
             "timezone": TimeZone.current.identifier,
@@ -55,12 +56,15 @@ enum ClaudeClient {
         return PingOutcome(conversationID: conversationID, replyText: replyText, matchedExpected: matched)
     }
 
-    private static func applyCommonHeaders(_ request: inout URLRequest, sessionKey: String) {
+    private static func applyCommonHeaders(_ request: inout URLRequest, sessionKey: String, cookieHeader: String? = nil) {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.setValue("https://claude.ai", forHTTPHeaderField: "Origin")
         request.setValue("https://claude.ai/new", forHTTPHeaderField: "Referer")
-        request.setValue("sessionKey=\(sessionKey)", forHTTPHeaderField: "Cookie")
+        // Send the full captured login cookies when available so requests
+        // look exactly like the browser session; fall back to the bare key.
+        let cookies = (cookieHeader?.isEmpty == false) ? cookieHeader! : "sessionKey=\(sessionKey)"
+        request.setValue(cookies, forHTTPHeaderField: "Cookie")
         request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)", forHTTPHeaderField: "User-Agent")
     }
 

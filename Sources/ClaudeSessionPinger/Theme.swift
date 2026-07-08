@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 enum ClaudeTheme {
     static let accent = Color(red: 0.80, green: 0.40, blue: 0.27)
@@ -185,4 +186,22 @@ struct PixelBar: View {
         // Round up so any nonzero usage lights at least one block.
         return Int((Double(clamped) / 100 * Double(blockCount)).rounded(.up))
     }
+}
+
+// MARK: - Window glass
+
+/// The system's own behind-window Liquid Glass: an `NSVisualEffectView`
+/// blurring whatever is behind the window, driven entirely by the system's
+/// material and accessibility settings (so "Reduce transparency" is
+/// respected automatically). Used as the root background of whole windows.
+struct WindowGlassBackground: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .underWindowBackground
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }

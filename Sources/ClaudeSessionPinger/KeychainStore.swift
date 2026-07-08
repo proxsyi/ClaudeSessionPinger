@@ -16,7 +16,7 @@ enum KeychainStore {
     private static let service = "com.cash.claudesessionpinger"
     private static let account = "sessionKey"
 
-    static func save(_ value: String) throws {
+    static func save(_ value: String, account: String = KeychainStore.account) throws {
         let data = Data(value.utf8)
         let baseQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -33,7 +33,7 @@ enum KeychainStore {
         }
     }
 
-    static func load() -> String? {
+    static func load(account: String = KeychainStore.account) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -49,7 +49,7 @@ enum KeychainStore {
         return String(data: data, encoding: .utf8)
     }
 
-    static func delete() {
+    static func delete(account: String = KeychainStore.account) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

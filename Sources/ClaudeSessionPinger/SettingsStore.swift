@@ -23,6 +23,8 @@ final class SettingsStore: ObservableObject {
         static let notifyOnServiceOutage = "notifyOnServiceOutage"
         static let sessionUsageThresholds = "sessionUsageThresholds"
         static let weeklyUsageThresholds = "weeklyUsageThresholds"
+        static let autoModel = "autoModel"
+        static let autoUpdateEnabled = "autoUpdateEnabled"
     }
 
     @Published var organizationID: String {
@@ -64,12 +66,33 @@ final class SettingsStore: ObservableObject {
             }
         }
     }
+    /// When true, the app picks the lightest Claude model it detects as
+    /// available instead of using the fixed `model` slug.
+    @Published var autoModel: Bool {
+        didSet { UserDefaults.standard.set(autoModel, forKey: Keys.autoModel) }
+    }
+    /// When true, new releases are downloaded and installed automatically as
+    /// soon as the daily check finds one.
+    @Published var autoUpdateEnabled: Bool {
+        didSet { UserDefaults.standard.set(autoUpdateEnabled, forKey: Keys.autoUpdateEnabled) }
+    }
     @Published var sessionKey: String {
         didSet {
             if sessionKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 KeychainStore.delete()
             } else {
                 try? KeychainStore.save(sessionKey)
+            }
+        }
+    }
+    /// The full Cookie header captured by the built-in login (every claude.ai
+    /// cookie, not just sessionKey), stored in the keychain alongside the key.
+    @Published var cookieHeader: String {
+        didSet {
+            if cookieHeader.isEmpty {
+                KeychainStore.delete(account: "cookieHeader")
+            } else {
+                try? KeychainStore.save(cookieHeader, account: "cookieHeader")
             }
         }
     }
@@ -96,6 +119,9 @@ final class SettingsStore: ObservableObject {
             weeklyUsageThresholds = SettingsStore.defaultWeeklyThresholds
         }
         sessionKey = KeychainStore.load() ?? ""
+        cookieHeader = KeychainStore.load(account: "cookieHeader") ?? ""
+        autoModel = defaults.object(forKey: Keys.autoModel) == nil ? true : defaults.bool(forKey: Keys.autoModel)
+        autoUpdateEnabled = defaults.object(forKey: Keys.autoUpdateEnabled) == nil ? true : defaults.bool(forKey: Keys.autoUpdateEnabled)
         if let data = defaults.data(forKey: Keys.scheduleSlots),
            let decoded = try? JSONDecoder().decode([ScheduleSlot].self, from: data),
            !decoded.isEmpty {
@@ -109,6 +135,17 @@ final class SettingsStore: ObservableObject {
         !sessionKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !organizationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// The Cookie header requests should send: the full captured login
+    /// cookies when they still match the current session key, otherwise just
+    /// the session key (e.g. after a manual key paste).
+    var effectiveCookieHeader: String {
+        let trimmedKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedKey.isEmpty, !cookieHeader.isEmpty, cookieHeader.contains(trimmedKey) {
+            return cookieHeader
+        }
+        return "sessionKey=\(trimmedKey)"
     }
 
     var maskedSessionKey: String {
