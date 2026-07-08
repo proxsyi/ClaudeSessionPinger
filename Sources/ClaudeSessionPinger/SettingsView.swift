@@ -108,8 +108,13 @@ struct SettingsView: View {
                 Toggle("Launch at login", isOn: $launchAtLogin)
                 Toggle("Notify on failure", isOn: $notifyOnFailure)
 
+                Divider()
+
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Updates").font(.system(size: 11)).foregroundColor(ClaudeTheme.textSecondary)
+                    Text("Current version: \(currentVersion)")
+                        .font(.system(size: 11))
+                        .foregroundColor(ClaudeTheme.textSecondary)
                     if let update = appState.availableUpdate {
                         Text("Version \(update.version) is available.")
                             .font(.system(size: 11))
@@ -186,6 +191,10 @@ struct SettingsView: View {
                 testResult = nil
             }
         }
+    }
+
+    private var currentVersion: String {
+        (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "?"
     }
 
     /// Formats a 24-hour `hour`/`minute` pair as a fixed 12-hour clock string

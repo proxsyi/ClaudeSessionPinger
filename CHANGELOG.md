@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.5.1
+
+- Fixed a blank "Session Pinger Settings" window that could appear on launch: it was the leftover empty SwiftUI settings scene, which is now closed automatically so only the real Settings window ever shows.
+- The Settings Updates section now shows the current app version and is separated by a divider.
+
 ## v1.5.0
 
 - Added real auto-updating: the app now checks this repo's public GitHub Releases and can download, install, and relaunch itself into a new version with one click ("Install & Restart") -- no more manual rebuilds to pick up a new release, and no token or login needed.

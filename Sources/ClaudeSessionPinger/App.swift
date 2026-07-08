@@ -14,6 +14,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindowController = SettingsWindowController(settings: settings, stats: stats, appState: appState)
         statusBarController = StatusBarController(settings: settings, stats: stats, appState: appState)
         installSettingsShortcut()
+        closeStraySwiftUIWindows()
+    }
+
+    /// The SwiftUI `Settings { EmptyView() }` scene below only exists to
+    /// satisfy the `App` protocol -- we drive our real Settings window from
+    /// `SettingsWindowController`. Because it's the app's only SwiftUI scene,
+    /// macOS can open (or restore) it as a blank "<App Name> Settings" window
+    /// on launch. We never want it, so close any stray window that shows up
+    /// right after launch. Our own Settings window is created lazily on demand
+    /// and titled exactly "Settings", so it's left alone.
+    private func closeStraySwiftUIWindows() {
+        DispatchQueue.main.async {
+            for window in NSApp.windows where window.isVisible && window.title != "Settings" {
+                window.close()
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
