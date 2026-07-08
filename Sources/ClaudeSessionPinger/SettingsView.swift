@@ -25,12 +25,26 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Settings")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(ClaudeTheme.textPrimary)
+            HStack {
+                Text("Settings")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(ClaudeTheme.textPrimary)
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 14)
+            .padding(.bottom, 10)
 
+            Divider()
+
+            ScrollView {
+                // The glass container must live INSIDE the scroll view.
+                // Glass effects render in their own layer keyed to the
+                // container, so a container spanning the whole window let
+                // panels draw outside the scrolling region (clipping through
+                // the header and footer). Scoped to the scroll content, they
+                // scroll and clip like normal views.
+                VStack(alignment: .leading, spacing: 16) {
                     accountSection
                         .padding(14)
                         .glassPanel()
@@ -47,9 +61,9 @@ struct SettingsView: View {
                         .padding(14)
                         .glassPanel()
                 }
+                .claudeGlassContainer()
                 .padding(20)
             }
-            // Keep scrolled glass panels from drawing over the footer bar.
             .clipped()
 
             Divider()
@@ -57,7 +71,6 @@ struct SettingsView: View {
             footer
                 .background(.bar)
         }
-        .claudeGlassContainer()
         .frame(width: 420, height: 660)
         .background(WindowGlassBackground().ignoresSafeArea())
         .onAppear(perform: loadCurrentValues)

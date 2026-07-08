@@ -272,28 +272,73 @@ final class AppState: ObservableObject {
     private var notifiedSessionThresholds: Set<Int> = []
     /// Thresholds already notified for the current weekly window.
     private var notifiedWeeklyThresholds: Set<Int> = []
-    /// Reset timestamps last seen -- when these change, a new window has
-    /// started, so its thresholds may fire again.
+    /// Reset timestamps last seen -- when these move by more than the jitter
+    /// tolerance, a new window has started and thresholds may fire again.
     private var lastSessionResetsAt: Date?
     private var lastWeeklyResetsAt: Date?
+    /// False until the first successful usage fetch of this run. That first
+    /// fetch only records which thresholds are already crossed -- it never
+    /// alerts, so relaunching the app can't re-alert limits hit earlier.
+    private var usageBaselined = false
+    /// The server recomputes reset timestamps on every poll, so two reads of
+    /// the same window can differ by a few seconds. Only a shift bigger than
+    /// this counts as a genuinely new window.
+    private let resetJitterTolerance: TimeInterval = 120
+
+    private func isNewWindow(_ new: Date, comparedTo old: Date?) -> Bool {
+        guard let old else { return true }
+        return abs(new.timeIntervalSince(old)) > resetJitterTolerance
+    }
     /// nil until the first status check completes, so launching during an
     /// outage never fires a spurious outage/degraded/recovery notification.
     private var lastKnownServiceLevel: ClaudeServiceStatus.Level?
 
     /// Fires each user-selected usage threshold at most once per window.
+    /// Guards against the two big false-alert sources: relaunching the app
+    /// (the first fetch baselines silently) and server-side jitter in the
+    /// reset timestamps (small shifts don't count as a new window).
     private func notifyUsageThresholdsIfNeeded(for fetched: ClaudeUsage) {
-        if fetched.sessionResetsAt != lastSessionResetsAt {
-            lastSessionResetsAt = fetched.sessionResetsAt
-            notifiedSessionThresholds.removeAll()
+        if let sessionResets = fetched.sessionResetsAt {
+            if isNewWindow(sessionResets, comparedTo: lastSessionResetsAt) {
+                notifiedSessionThresholds.removeAll()
+            }
+            lastSessionResetsAt = sessionResets
         }
-        if fetched.weeklyResetsAt != lastWeeklyResetsAt {
-            lastWeeklyResetsAt = fetched.weeklyResetsAt
-            notifiedWeeklyThresholds.removeAll()
+        if let weeklyResets = fetched.weeklyResetsAt {
+            if isNewWindow(weeklyResets, comparedTo: lastWeeklyResetsAt) {
+                notifiedWeeklyThresholds.removeAll()
+            }
+            lastWeeklyResetsAt = weeklyResets
         }
+
+        // Self-healing: usage only rises within a window, so a percent now
+        // sitting well below an already-notified threshold means the window
+        // really did reset even if the timestamps never showed it.
         if let percent = fetched.sessionPercent {
-            for threshold in settings.sessionUsageThresholds.sorted()
-            where percent >= threshold && !notifiedSessionThresholds.contains(threshold) {
-                notifiedSessionThresholds.insert(threshold)
+            notifiedSessionThresholds = notifiedSessionThresholds.filter { $0 <= percent + 10 }
+        }
+        if let percent = fetched.weeklyPercent {
+            notifiedWeeklyThresholds = notifiedWeeklyThresholds.filter { $0 <= percent + 10 }
+        }
+
+        let crossedSession = settings.sessionUsageThresholds.sorted().filter { threshold in
+            (fetched.sessionPercent ?? 0) >= threshold && !notifiedSessionThresholds.contains(threshold)
+        }
+        let crossedWeekly = settings.weeklyUsageThresholds.sorted().filter { threshold in
+            (fetched.weeklyPercent ?? 0) >= threshold && !notifiedWeeklyThresholds.contains(threshold)
+        }
+        notifiedSessionThresholds.formUnion(crossedSession)
+        notifiedWeeklyThresholds.formUnion(crossedWeekly)
+
+        // First successful fetch after launch: record what's already crossed
+        // without alerting -- those limits were hit before this run.
+        if !usageBaselined {
+            usageBaselined = true
+            return
+        }
+
+        if let percent = fetched.sessionPercent {
+            for threshold in crossedSession {
                 let reset = fetched.sessionResetsAt.map { " Resets at \($0.formatted(date: .omitted, time: .shortened))." } ?? ""
                 sendNotification(
                     identifier: "usage-session-\(threshold)",
@@ -303,9 +348,7 @@ final class AppState: ObservableObject {
             }
         }
         if let percent = fetched.weeklyPercent {
-            for threshold in settings.weeklyUsageThresholds.sorted()
-            where percent >= threshold && !notifiedWeeklyThresholds.contains(threshold) {
-                notifiedWeeklyThresholds.insert(threshold)
+            for threshold in crossedWeekly {
                 let reset = fetched.weeklyResetsAt.map { " Resets \($0.formatted(date: .abbreviated, time: .shortened))." } ?? ""
                 sendNotification(
                     identifier: "usage-weekly-\(threshold)",
@@ -391,8 +434,9 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Sends a test notification so notification delivery can be verified
-    /// from Settings, surfacing a hint when macOS has alerts turned off.
+    /// Sends a test notification so delivery can be verified from Settings.
+    /// Requests permission on the spot if it was never granted, and reports
+    /// exactly why nothing appeared otherwise.
     func sendTestNotification() {
         notificationTestStatus = nil
         guard runningInsideProperAppBundle else {
@@ -403,14 +447,40 @@ final class AppState: ObservableObject {
             let status = notificationSettings.authorizationStatus
             Task { @MainActor in
                 guard let self else { return }
-                if status == .denied {
-                    self.notificationTestStatus = "Notifications are turned off for Session Pinger in System Settings > Notifications."
+                switch status {
+                case .denied:
+                    self.notificationTestStatus = "Notifications are turned off for Session Pinger. Turn them on in System Settings > Notifications > Session Pinger, then test again."
+                case .notDetermined:
+                    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
+                        Task { @MainActor in
+                            if granted {
+                                self.deliverTestNotification()
+                            } else {
+                                self.notificationTestStatus = "Permission wasn't granted, so macOS won't show notifications."
+                            }
+                        }
+                    }
+                default:
+                    self.deliverTestNotification()
+                }
+            }
+        }
+    }
+
+    /// Sends the actual test alert and reports delivery errors instead of
+    /// failing silently.
+    private func deliverTestNotification() {
+        let content = UNMutableNotificationContent()
+        content.title = "Test notification"
+        content.body = "Notifications are working."
+        content.sound = .default
+        let request = UNNotificationRequest(identifier: "test-notification", content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request) { [weak self] error in
+            Task { @MainActor in
+                guard let self else { return }
+                if let error {
+                    self.notificationTestStatus = "macOS rejected the notification: \(error.localizedDescription)"
                 } else {
-                    self.sendNotification(
-                        identifier: "test-notification",
-                        title: "Test notification",
-                        body: "Notifications are working."
-                    )
                     self.notificationTestStatus = "Test notification sent -- check the top-right of your screen."
                 }
             }
@@ -430,7 +500,9 @@ final class AppState: ObservableObject {
 
     private func notifyFailureIfNeeded(message: String) {
         guard settings.notifyOnFailure else { return }
-        sendNotification(identifier: UUID().uuidString, title: "Session ping failed", body: message)
+        // Stable identifier: repeated failures replace the previous alert
+        // instead of stacking a pile of duplicates.
+        sendNotification(identifier: "ping-failure", title: "Session ping failed", body: message)
     }
 
     /// Shared local-notification helper. Stable identifiers let the system

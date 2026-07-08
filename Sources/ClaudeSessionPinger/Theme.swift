@@ -23,7 +23,9 @@ struct GlassPanel: ViewModifier {
         if #available(macOS 26.0, *) {
             content
                 .glassEffect(
-                    tint == .clear ? .regular : .regular.tint(tint.opacity(0.35)),
+                    // The .clear glass variant: transparent "liquid" glass
+                    // rather than the frosted .regular material.
+                    tint == .clear ? .clear : .clear.tint(tint.opacity(0.35)),
                     in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 )
         } else {
@@ -31,9 +33,9 @@ struct GlassPanel: ViewModifier {
                 .background(
                     ZStack {
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill(.regularMaterial)
+                            .fill(.ultraThinMaterial)
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill(tint.opacity(0.10))
+                            .fill(tint.opacity(0.06))
                     }
                 )
                 .overlay(
@@ -193,7 +195,9 @@ struct UsageBar: View {
 struct WindowGlassBackground: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
-        view.material = .underWindowBackground
+        // .hudWindow is the most transparent of the standard materials --
+        // clear glass rather than heavy frost.
+        view.material = .hudWindow
         view.blendingMode = .behindWindow
         view.state = .active
         return view

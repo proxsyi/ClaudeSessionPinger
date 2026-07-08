@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.10.0
+
+- Fixed usage notifications re-alerting limits that were already hit: the first fetch after launch now records existing usage silently, and server-side jitter in window reset timestamps no longer wipes the "already notified" memory (this was the source of the random repeat alerts).
+- Ping-failure notifications now use a stable identifier so repeats replace the previous alert instead of stacking duplicates.
+- The test notification button now requests notification permission on the spot when it was never granted, and reports delivery errors instead of failing silently.
+- Clear Liquid Glass: panels now use the clear glass variant instead of frosted, and the Settings window background is far more transparent.
+- Fixed Settings content clipping through the header and footer while scrolling.
+- New 16x16 app icon following the house icon design rules (rounded panel, greyish-teal border with top highlight, Claude-orange face, outlined stopwatch symbol).
+- README rewritten: simple explanation of what the app does, clean install steps, and how to get past Gatekeeper's "cannot verify" block on first launch.
+- Release flow now removes the build copy of the app after publishing so Spotlight no longer shows duplicate Session Pingers.
+
 ## v1.9.0
 
 - Complete visual refresh: the pixel/retro look is gone. The whole app -- popover, Settings, progress bars, and the menu bar icon -- is now clean, minimal Liquid Glass driven by the system's materials.
