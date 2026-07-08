@@ -13,6 +13,7 @@ struct SettingsView: View {
     @State private var launchAtLogin = false
     @State private var notifyOnFailure = true
     @State private var notifyOnServiceOutage = true
+    @State private var notifyOnServiceDegraded = true
     @State private var sessionThresholds: Set<Int> = []
     @State private var weeklyThresholds: Set<Int> = []
     @State private var autoUpdate = true
@@ -25,26 +26,25 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("SETTINGS")
-                        .font(ClaudeTheme.pixelFont(size: 14, weight: .bold))
-                        .tracking(2)
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Settings")
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(ClaudeTheme.textPrimary)
 
                     accountSection
-                        .padding(12)
+                        .padding(14)
                         .glassPanel()
                     pingSection
-                        .padding(12)
-                        .glassPanel(tint: ClaudeTheme.accent)
+                        .padding(14)
+                        .glassPanel()
                     notificationsSection
-                        .padding(12)
+                        .padding(14)
                         .glassPanel()
                     appSection
-                        .padding(12)
+                        .padding(14)
                         .glassPanel()
                     updatesSection
-                        .padding(12)
+                        .padding(14)
                         .glassPanel()
                 }
                 .padding(20)
@@ -58,7 +58,7 @@ struct SettingsView: View {
                 .background(.bar)
         }
         .claudeGlassContainer()
-        .frame(width: 400, height: 640)
+        .frame(width: 420, height: 660)
         .background(WindowGlassBackground().ignoresSafeArea())
         .onAppear(perform: loadCurrentValues)
         .sheet(isPresented: $showingLogin) {
@@ -72,11 +72,43 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Reusable rows
+
+    /// A clean settings row: label on the left, a small switch pinned to the
+    /// right edge, like System Settings. The explicit accessibility label
+    /// keeps VoiceOver working despite `labelsHidden()`.
+    private func toggleRow(_ title: String, isOn: Binding<Bool>) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 12))
+                .foregroundColor(ClaudeTheme.textPrimary)
+            Spacer()
+            Toggle("", isOn: isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .accessibilityLabel(Text(title))
+        }
+    }
+
+    private func fieldLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11))
+            .foregroundColor(ClaudeTheme.textSecondary)
+    }
+
+    private func caption(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11))
+            .foregroundColor(ClaudeTheme.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
     // MARK: - Sections
 
     private var accountSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            PixelSectionHeader(text: "Account")
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(text: "Account")
 
             Button(loginCaptured || !settings.sessionKey.isEmpty ? "Log in again" : "Log in with Claude") {
                 showingLogin = true
@@ -85,21 +117,17 @@ struct SettingsView: View {
 
             if loginCaptured {
                 Text("Signed in -- session and cookies captured automatically.")
-                    .font(ClaudeTheme.pixelFont(size: 10))
+                    .font(.system(size: 11))
                     .foregroundColor(ClaudeTheme.accent)
             } else if !settings.sessionKey.isEmpty {
-                Text("Using a previously captured session (\(settings.maskedSessionKey)).")
-                    .font(ClaudeTheme.pixelFont(size: 10))
-                    .foregroundColor(ClaudeTheme.textSecondary)
+                caption("Using a previously captured session (\(settings.maskedSessionKey)).")
             }
 
             if isFetchingOrganization {
-                Text("Detecting your organization ID\u{2026}")
-                    .font(ClaudeTheme.pixelFont(size: 10))
-                    .foregroundColor(ClaudeTheme.textSecondary)
+                caption("Detecting your organization ID\u{2026}")
             } else if loginCaptured && organizationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text("Couldn't detect your organization ID automatically. Open claude.ai in a browser, open Dev Tools \u{2192} Application \u{2192} Cookies, and paste the value of \"lastActiveOrg\" under Keys below.")
-                    .font(ClaudeTheme.pixelFont(size: 10))
+                    .font(.system(size: 11))
                     .foregroundColor(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -113,70 +141,51 @@ struct SettingsView: View {
     /// automatically at login, so these fields exist only for manual fixes.
     private var keysDisclosure: some View {
         DisclosureGroup("Keys") {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Organization ID")
-                        .font(ClaudeTheme.pixelFont(size: 10))
-                        .foregroundColor(ClaudeTheme.textSecondary)
+                    fieldLabel("Organization ID")
                     TextField("Filled automatically on login", text: $organizationID)
                         .textFieldStyle(.roundedBorder)
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Session key")
-                        .font(ClaudeTheme.pixelFont(size: 10))
-                        .foregroundColor(ClaudeTheme.textSecondary)
+                    fieldLabel("Session key")
                     SecureField(settings.sessionKey.isEmpty ? "Paste sessionKey cookie" : settings.maskedSessionKey, text: $sessionKeyInput)
                         .textFieldStyle(.roundedBorder)
-                    Text("Only needed if the built-in login doesn't work for your account.")
-                        .font(ClaudeTheme.pixelFont(size: 9))
-                        .foregroundColor(ClaudeTheme.textSecondary)
+                    caption("Only needed if the built-in login doesn't work for your account.")
                 }
-                Text(settings.cookieHeader.isEmpty
+                caption(settings.cookieHeader.isEmpty
                     ? "No login cookies captured yet -- use Log in with Claude above."
                     : "Full login cookies captured and stored in the keychain.")
-                    .font(ClaudeTheme.pixelFont(size: 9))
-                    .foregroundColor(ClaudeTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.top, 6)
+            .padding(.top, 8)
         }
-        .font(ClaudeTheme.pixelFont(size: 10, weight: .semibold))
+        .font(.system(size: 12, weight: .medium))
         .foregroundColor(ClaudeTheme.textSecondary)
     }
 
     private var pingSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            PixelSectionHeader(text: "Ping")
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(text: "Ping")
 
-            VStack(alignment: .leading, spacing: 4) {
-                Toggle("Automatic model (recommended)", isOn: $autoModel)
-                    .font(ClaudeTheme.pixelFont(size: 11))
+            VStack(alignment: .leading, spacing: 6) {
+                toggleRow("Automatic model (recommended)", isOn: $autoModel)
                 if autoModel {
-                    Text(autoModelCaption)
-                        .font(ClaudeTheme.pixelFont(size: 9))
-                        .foregroundColor(ClaudeTheme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    caption(autoModelCaption)
                 } else {
-                    Text("Model slug")
-                        .font(ClaudeTheme.pixelFont(size: 10))
-                        .foregroundColor(ClaudeTheme.textSecondary)
+                    fieldLabel("Model slug")
                     TextField("claude-haiku-4-5-...", text: $model)
                         .textFieldStyle(.roundedBorder)
                 }
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("Message")
-                    .font(ClaudeTheme.pixelFont(size: 10))
-                    .foregroundColor(ClaudeTheme.textSecondary)
+                fieldLabel("Message")
                 TextField("Say 1", text: $message)
                     .textFieldStyle(.roundedBorder)
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Schedule")
-                    .font(ClaudeTheme.pixelFont(size: 10))
-                    .foregroundColor(ClaudeTheme.textSecondary)
+                fieldLabel("Schedule")
                 ForEach(slots.indices, id: \.self) { index in
                     HStack {
                         Stepper(value: Binding(
@@ -184,7 +193,7 @@ struct SettingsView: View {
                             set: { slots[index].hour = $0 }
                         ), in: 0...23) {
                             Text(formattedTime(hour: slots[index].hour, minute: slots[index].minute))
-                                .font(ClaudeTheme.pixelFont(size: 12))
+                                .font(.system(size: 12).monospacedDigit())
                                 .foregroundColor(ClaudeTheme.textPrimary)
                                 .frame(width: 84, alignment: .leading)
                         }
@@ -199,7 +208,7 @@ struct SettingsView: View {
                     slots.append(ScheduleSlot(hour: 12, minute: 0))
                 }
                 .buttonStyle(.plain)
-                .font(ClaudeTheme.pixelFont(size: 11, weight: .semibold))
+                .font(.system(size: 12, weight: .medium))
                 .foregroundColor(ClaudeTheme.accent)
             }
         }
@@ -217,12 +226,11 @@ struct SettingsView: View {
 
     private var notificationsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            PixelSectionHeader(text: "Notifications")
+            SectionHeader(text: "Notifications")
 
-            Toggle("Notify on ping failure", isOn: $notifyOnFailure)
-                .font(ClaudeTheme.pixelFont(size: 11))
-            Toggle("Notify on Claude service outages", isOn: $notifyOnServiceOutage)
-                .font(ClaudeTheme.pixelFont(size: 11))
+            toggleRow("Ping failures", isOn: $notifyOnFailure)
+            toggleRow("Claude services down", isOn: $notifyOnServiceOutage)
+            toggleRow("Claude performing poorly", isOn: $notifyOnServiceDegraded)
 
             thresholdPicker(
                 title: "Session usage alerts",
@@ -240,23 +248,18 @@ struct SettingsView: View {
             }
             .claudeGhostButton()
             if let status = appState.notificationTestStatus {
-                Text(status)
-                    .font(ClaudeTheme.pixelFont(size: 9))
-                    .foregroundColor(ClaudeTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                caption(status)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func thresholdPicker(title: String, subtitle: String, selection: Binding<Set<Int>>) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 5) {
             Text(title)
-                .font(ClaudeTheme.pixelFont(size: 11, weight: .semibold))
+                .font(.system(size: 12, weight: .medium))
                 .foregroundColor(ClaudeTheme.textPrimary)
-            Text(subtitle)
-                .font(ClaudeTheme.pixelFont(size: 9))
-                .foregroundColor(ClaudeTheme.textSecondary)
+            caption(subtitle)
             HStack(spacing: 6) {
                 ForEach(SettingsStore.availableThresholds, id: \.self) { threshold in
                     thresholdPill(threshold: threshold, selection: selection)
@@ -275,10 +278,10 @@ struct SettingsView: View {
             }
         }) {
             Text("\(threshold)%")
-                .font(ClaudeTheme.pixelFont(size: 11, weight: .bold))
-                .padding(.horizontal, 8)
+                .font(.system(size: 11, weight: .medium).monospacedDigit())
+                .padding(.horizontal, 10)
                 .padding(.vertical, 4)
-                .background(Rectangle().fill(isOn ? ClaudeTheme.accent : Color.primary.opacity(0.08)))
+                .background(Capsule(style: .continuous).fill(isOn ? ClaudeTheme.accent : Color.primary.opacity(0.08)))
                 .foregroundColor(isOn ? .white : ClaudeTheme.textSecondary)
         }
         .buttonStyle(.plain)
@@ -286,29 +289,25 @@ struct SettingsView: View {
     }
 
     private var appSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            PixelSectionHeader(text: "App")
-            Toggle("Launch at login", isOn: $launchAtLogin)
-                .font(ClaudeTheme.pixelFont(size: 11))
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(text: "App")
+            toggleRow("Launch at login", isOn: $launchAtLogin)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var updatesSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            PixelSectionHeader(text: "Updates")
-            Toggle("Install updates automatically", isOn: $autoUpdate)
-                .font(ClaudeTheme.pixelFont(size: 11))
-            Text("Current version: \(currentVersion)")
-                .font(ClaudeTheme.pixelFont(size: 10))
-                .foregroundColor(ClaudeTheme.textSecondary)
+        VStack(alignment: .leading, spacing: 8) {
+            SectionHeader(text: "Updates")
+            toggleRow("Install updates automatically", isOn: $autoUpdate)
+            caption("Current version: \(currentVersion)")
             if let update = appState.availableUpdate {
                 Text("Version \(update.version) is available.")
-                    .font(ClaudeTheme.pixelFont(size: 10))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundColor(ClaudeTheme.accent)
                 if let installError = appState.installUpdateError {
                     Text(installError)
-                        .font(ClaudeTheme.pixelFont(size: 9))
+                        .font(.system(size: 11))
                         .foregroundColor(.red)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -318,14 +317,9 @@ struct SettingsView: View {
                 .claudePrimaryButton()
                 .disabled(appState.isInstallingUpdate)
             } else if let error = appState.updateCheckError {
-                Text(error)
-                    .font(ClaudeTheme.pixelFont(size: 9))
-                    .foregroundColor(ClaudeTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                caption(error)
             } else {
-                Text("You're on the latest version.")
-                    .font(ClaudeTheme.pixelFont(size: 10))
-                    .foregroundColor(ClaudeTheme.textSecondary)
+                caption("You're on the latest version.")
             }
             Button(appState.isCheckingForUpdates ? "Checking\u{2026}" : "Check for updates") {
                 Task { await appState.checkForUpdates() }
@@ -340,7 +334,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 8) {
             if let testResult = testResult {
                 Text(testResult)
-                    .font(ClaudeTheme.pixelFont(size: 10))
+                    .font(.system(size: 11))
                     .foregroundColor(testResult.hasPrefix("Success") ? ClaudeTheme.accent : .red)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -417,6 +411,7 @@ struct SettingsView: View {
         launchAtLogin = settings.launchAtLogin
         notifyOnFailure = settings.notifyOnFailure
         notifyOnServiceOutage = settings.notifyOnServiceOutage
+        notifyOnServiceDegraded = settings.notifyOnServiceDegraded
         sessionThresholds = Set(settings.sessionUsageThresholds)
         weeklyThresholds = Set(settings.weeklyUsageThresholds)
         autoUpdate = settings.autoUpdateEnabled
@@ -441,6 +436,7 @@ struct SettingsView: View {
         settings.launchAtLogin = launchAtLogin
         settings.notifyOnFailure = notifyOnFailure
         settings.notifyOnServiceOutage = notifyOnServiceOutage
+        settings.notifyOnServiceDegraded = notifyOnServiceDegraded
         settings.sessionUsageThresholds = sessionThresholds.sorted()
         settings.weeklyUsageThresholds = weeklyThresholds.sorted()
         settings.autoUpdateEnabled = autoUpdate

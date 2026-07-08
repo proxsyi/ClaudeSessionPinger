@@ -5,13 +5,8 @@ enum ClaudeTheme {
     static let accent = Color(red: 0.80, green: 0.40, blue: 0.27)
     static let textPrimary = Color.primary
     static let textSecondary = Color.secondary
-    static let cornerRadius: CGFloat = 10
-    static let cardCornerRadius: CGFloat = 8
-
-    /// Monospaced "pixel" font used across the UI for the retro look.
-    static func pixelFont(size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .monospaced)
-    }
+    static let cornerRadius: CGFloat = 12
+    static let cardCornerRadius: CGFloat = 12
 }
 
 // MARK: - Panels
@@ -38,19 +33,12 @@ struct GlassPanel: ViewModifier {
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                             .fill(.regularMaterial)
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill(tint.opacity(0.12))
+                            .fill(tint.opacity(0.10))
                     }
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(
-                            LinearGradient(
-                                colors: [Color.white.opacity(0.5), Color.white.opacity(0.05), ClaudeTheme.accent.opacity(0.2)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1
-                        )
+                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         }
@@ -147,44 +135,52 @@ extension View {
     }
 }
 
-// MARK: - Pixel components
+// MARK: - Clean components
 
-/// Uppercase, tracked, monospaced section header for the pixel look.
-struct PixelSectionHeader: View {
+/// Small uppercase section label, matching the system's grouped-settings
+/// look: quiet, secondary, lightly tracked.
+struct SectionHeader: View {
     let text: String
 
     var body: some View {
         Text(text.uppercased())
-            .font(ClaudeTheme.pixelFont(size: 10, weight: .bold))
-            .tracking(1.5)
-            .foregroundColor(ClaudeTheme.accent)
+            .font(.system(size: 10, weight: .semibold))
+            .tracking(0.8)
+            .foregroundColor(ClaudeTheme.textSecondary)
     }
 }
 
-/// A retro segmented "health bar": chunky square blocks that fill left to
-/// right, sitting on the glass panels so the Liquid Glass shows through the
-/// unfilled blocks.
-struct PixelBar: View {
+/// A smooth capsule progress bar for usage. The track stays translucent so
+/// the glass shows through; small nonzero values still render a visible dot
+/// (parity with the old bar's round-up rule).
+struct UsageBar: View {
     let percent: Int?
-    var blockCount: Int = 20
-    var blockHeight: CGFloat = 7
+    var height: CGFloat = 6
     var color: Color
 
     var body: some View {
-        HStack(spacing: 2) {
-            ForEach(0..<blockCount, id: \.self) { index in
-                Rectangle()
-                    .fill(index < filledBlocks ? color : Color.primary.opacity(0.12))
-                    .frame(height: blockHeight)
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule(style: .continuous)
+                    .fill(Color.primary.opacity(0.08))
+                Capsule(style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [color.opacity(0.8), color],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(width: max(fraction > 0 ? height : 0, proxy.size.width * fraction))
             }
         }
+        .frame(height: height)
+        .animation(.easeOut(duration: 0.25), value: percent)
     }
 
-    private var filledBlocks: Int {
+    private var fraction: CGFloat {
         guard let percent else { return 0 }
-        let clamped = min(max(percent, 0), 100)
-        // Round up so any nonzero usage lights at least one block.
-        return Int((Double(clamped) / 100 * Double(blockCount)).rounded(.up))
+        return CGFloat(min(max(percent, 0), 100)) / 100
     }
 }
 

@@ -277,8 +277,8 @@ final class AppState: ObservableObject {
     private var lastSessionResetsAt: Date?
     private var lastWeeklyResetsAt: Date?
     /// nil until the first status check completes, so launching during an
-    /// outage never fires a spurious outage/recovery notification.
-    private var lastKnownServiceOperational: Bool?
+    /// outage never fires a spurious outage/degraded/recovery notification.
+    private var lastKnownServiceLevel: ClaudeServiceStatus.Level?
 
     /// Fires each user-selected usage threshold at most once per window.
     private func notifyUsageThresholdsIfNeeded(for fetched: ClaudeUsage) {
@@ -316,23 +316,33 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Notifies when Claude services go down or recover, once per transition.
+    /// Notifies when Claude services go down, degrade, or recover -- once
+    /// per level transition, gated by the user's notification toggles.
     private func notifyServiceChangeIfNeeded(newStatus: ClaudeServiceStatus) {
-        defer { lastKnownServiceOperational = newStatus.operational }
-        guard settings.notifyOnServiceOutage,
-              let wasOperational = lastKnownServiceOperational,
-              wasOperational != newStatus.operational else { return }
-        if newStatus.operational {
+        defer { lastKnownServiceLevel = newStatus.level }
+        guard let previous = lastKnownServiceLevel, previous != newStatus.level else { return }
+        switch newStatus.level {
+        case .outage:
+            guard settings.notifyOnServiceOutage else { return }
+            sendNotification(
+                identifier: "service-outage",
+                title: "Claude services are down",
+                body: newStatus.message
+            )
+        case .degraded:
+            guard settings.notifyOnServiceDegraded else { return }
+            sendNotification(
+                identifier: "service-degraded",
+                title: "Claude services are performing poorly",
+                body: newStatus.message
+            )
+        case .operational:
+            // Recovery matters to anyone who saw either alert above.
+            guard settings.notifyOnServiceOutage || settings.notifyOnServiceDegraded else { return }
             sendNotification(
                 identifier: "service-recovered",
                 title: "Claude services recovered",
                 body: "All Claude services are operational again."
-            )
-        } else {
-            sendNotification(
-                identifier: "service-outage",
-                title: "Claude service issue",
-                body: newStatus.message
             )
         }
     }

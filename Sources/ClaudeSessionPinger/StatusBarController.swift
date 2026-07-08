@@ -63,7 +63,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         popover.performClose(nil)
     }
 
-    /// Menu bar shows a 16x16 color-coded Claude-style starburst plus the
+    /// Menu bar shows a color-coded sparkle plus the
     /// current session usage percentage, like ClaudeUsageBar: green below
     /// 70%, yellow from 70%, red from 90%; gray while usage is unknown.
     private func updateButton(usage: ClaudeUsage?) {
@@ -80,40 +80,13 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         return .systemRed
     }
 
-    /// 16x16 pixel-art starburst: eight arms drawn as hard 1-point blocks on
-    /// a fixed grid for the retro look. Not a template image: the color
-    /// carries the usage signal.
-    private static let starPixelRows = [
-        "................",
-        ".......XX.......",
-        ".......XX.......",
-        "...X...XX...X...",
-        "....X..XX..X....",
-        ".....X.XX.X.....",
-        "......XXXX......",
-        ".XXXXXXXXXXXXXX.",
-        ".XXXXXXXXXXXXXX.",
-        "......XXXX......",
-        ".....X.XX.X.....",
-        "....X..XX..X....",
-        "...X...XX...X...",
-        ".......XX.......",
-        ".......XX.......",
-        "................"
-    ]
-
+    /// Menu bar icon: a clean SF Symbols sparkle tinted with the usage
+    /// color. Not a template image: the color carries the usage signal.
     static func starImage(color: NSColor) -> NSImage {
-        let rows = starPixelRows
-        let size = NSSize(width: 16, height: 16)
-        let image = NSImage(size: size, flipped: true) { _ in
-            color.setFill()
-            for (rowIndex, row) in rows.enumerated() {
-                for (columnIndex, character) in row.enumerated() where character == "X" {
-                    NSRect(x: CGFloat(columnIndex), y: CGFloat(rowIndex), width: 1, height: 1).fill()
-                }
-            }
-            return true
-        }
+        let configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
+        let base = NSImage(systemSymbolName: "sparkle", accessibilityDescription: "Session Pinger")
+        let image = base?.withSymbolConfiguration(configuration) ?? NSImage(size: NSSize(width: 16, height: 16))
         image.isTemplate = false
         return image
     }

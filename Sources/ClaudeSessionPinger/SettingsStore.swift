@@ -21,6 +21,7 @@ final class SettingsStore: ObservableObject {
         static let launchAtLogin = "launchAtLogin"
         static let notifyOnFailure = "notifyOnFailure"
         static let notifyOnServiceOutage = "notifyOnServiceOutage"
+        static let notifyOnServiceDegraded = "notifyOnServiceDegraded"
         static let sessionUsageThresholds = "sessionUsageThresholds"
         static let weeklyUsageThresholds = "weeklyUsageThresholds"
         static let autoModel = "autoModel"
@@ -51,6 +52,11 @@ final class SettingsStore: ObservableObject {
     }
     @Published var notifyOnServiceOutage: Bool {
         didSet { UserDefaults.standard.set(notifyOnServiceOutage, forKey: Keys.notifyOnServiceOutage) }
+    }
+    /// Notify when Claude's status page reports degraded performance (minor
+    /// issues), separately from full outages.
+    @Published var notifyOnServiceDegraded: Bool {
+        didSet { UserDefaults.standard.set(notifyOnServiceDegraded, forKey: Keys.notifyOnServiceDegraded) }
     }
     @Published var sessionUsageThresholds: [Int] {
         didSet {
@@ -106,6 +112,7 @@ final class SettingsStore: ObservableObject {
         launchAtLogin = defaults.bool(forKey: Keys.launchAtLogin)
         notifyOnFailure = defaults.object(forKey: Keys.notifyOnFailure) == nil ? true : defaults.bool(forKey: Keys.notifyOnFailure)
         notifyOnServiceOutage = defaults.object(forKey: Keys.notifyOnServiceOutage) == nil ? true : defaults.bool(forKey: Keys.notifyOnServiceOutage)
+        notifyOnServiceDegraded = defaults.object(forKey: Keys.notifyOnServiceDegraded) == nil ? true : defaults.bool(forKey: Keys.notifyOnServiceDegraded)
         if let data = defaults.data(forKey: Keys.sessionUsageThresholds),
            let decoded = try? JSONDecoder().decode([Int].self, from: data) {
             sessionUsageThresholds = decoded

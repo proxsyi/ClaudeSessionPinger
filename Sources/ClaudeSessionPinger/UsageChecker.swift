@@ -12,9 +12,20 @@ struct ClaudeUsage: Equatable {
 
 /// Claude service health, read from the public Claude status page.
 struct ClaudeServiceStatus: Equatable {
-    var operational: Bool
+    /// Health level mapped from the status page's indicator field:
+    /// "none" = operational, "minor" = degraded performance, anything
+    /// worse ("major"/"critical") = outage.
+    enum Level: Equatable {
+        case operational
+        case degraded
+        case outage
+    }
+
+    var level: Level
     var message: String
     var checkedAt: Date
+
+    var operational: Bool { level == .operational }
 }
 
 enum UsageError: Error, LocalizedError {
@@ -115,11 +126,25 @@ enum UsageChecker {
                 let status = object["status"] as? [String: Any],
                 let indicator = status["indicator"] as? String
             else { continue }
-            let operational = indicator.lowercased() == "none"
-            let message = operational
-                ? "All Claude services operational"
-                : ((status["description"] as? String) ?? "Claude is reporting service issues")
-            return ClaudeServiceStatus(operational: operational, message: message, checkedAt: Date())
+            let level: ClaudeServiceStatus.Level
+            switch indicator.lowercased() {
+            case "none":
+                level = .operational
+            case "minor":
+                level = .degraded
+            default:
+                level = .outage
+            }
+            let message: String
+            switch level {
+            case .operational:
+                message = "All Claude services operational"
+            case .degraded:
+                message = (status["description"] as? String) ?? "Claude services are performing poorly"
+            case .outage:
+                message = (status["description"] as? String) ?? "Claude is reporting a service outage"
+            }
+            return ClaudeServiceStatus(level: level, message: message, checkedAt: Date())
         }
         return nil
     }

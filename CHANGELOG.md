@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.9.0
+
+- Complete visual refresh: the pixel/retro look is gone. The whole app -- popover, Settings, progress bars, and the menu bar icon -- is now clean, minimal Liquid Glass driven by the system's materials.
+- Claude service alerts now distinguish full outages from degraded performance, using the severity reported by Claude's status page, and still announce recovery.
+- Every notification type has its own toggle in Settings: ping failures, Claude services down, Claude performing poorly, and the individual usage thresholds.
+- The menu bar icon is now a clean sparkle tinted by session usage instead of the pixel starburst; usage bars are smooth capsules instead of segmented blocks.
+- Settings restyled with right-aligned switches, quieter typography, and capsule threshold pills.
+
 ## v1.8.0
 
 - Settings reorganized: the organization ID and manual session key now live in a collapsed "Keys" area under Account -- they're captured automatically at login, so they stay out of the way.
