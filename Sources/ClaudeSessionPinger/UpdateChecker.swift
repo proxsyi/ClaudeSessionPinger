@@ -1,31 +1,43 @@
 import Foundation
 
-/// The small JSON file this app polls to learn about new releases, e.g.:
-/// { "version": "1.4.0", "url": "https://example.com/releases/1.4.0", "notes": "Bug fixes" }
+/// Where this app checks for new releases: the GitHub Releases API for its
+/// own private repo. Each release must be tagged like "v1.5.0" and have a
+/// zipped app bundle attached as an asset named `assetName` below --
+/// `Scripts/release.sh` builds and publishes that automatically.
 ///
-/// NOTE: this doesn't point anywhere real yet -- there's no hosting set up
-/// for this app's releases. Update `feedURL` once you have somewhere to
-/// publish that JSON file (a GitHub Releases API URL, a raw file on
-/// versyi.com, etc). Until then, checks simply fail quietly and the app
-/// behaves exactly as if update checking were off.
+/// Because the repo is private, every request needs a GitHub token with at
+/// least read-only "Contents" access to this repo, pasted into Settings and
+/// stored in the Keychain -- never hardcoded here.
 enum UpdateFeed {
-    // Left unset on purpose: there's nowhere real to check yet. Point this
-    // at a hosted version.json (a GitHub Releases API URL, a raw file on
-    // versyi.com, etc.) once one exists, and checks will start working
-    // immediately -- no other code changes needed.
-    static let feedURL: URL? = nil
+    static let latestReleaseAPIURL = URL(string: "https://api.github.com/repos/proxsyi/ClaudeSessionPinger/releases/latest")!
+    static let assetName = "ClaudeSessionPinger.app.zip"
 }
 
-struct UpdateInfo: Decodable, Equatable {
+struct UpdateInfo: Equatable {
     let version: String
-    let url: String
+    let releasePageURL: String
     let notes: String?
+    /// GitHub API URL for the release asset itself -- fetching it requires
+    /// the same auth token and an `Accept: application/octet-stream` header.
+    /// See `Updater.swift`.
+    let assetAPIURL: String
 }
 
 enum UpdateCheckResult: Equatable {
     case upToDate
     case updateAvailable(UpdateInfo)
     case failed(String)
+}
+
+private struct GitHubRelease: Decodable {
+    struct Asset: Decodable {
+        let name: String
+        let url: String
+    }
+    let tag_name: String
+    let html_url: String
+    let body: String?
+    let assets: [Asset]
 }
 
 enum UpdateChecker {
@@ -45,22 +57,38 @@ enum UpdateChecker {
     }
 
     static func check(currentVersion: String) async -> UpdateCheckResult {
-        guard let feedURL = UpdateFeed.feedURL else {
-            return .failed("Update checking isn't configured yet.")
+        guard let token = KeychainStore.loadGitHubToken(), !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .failed("Add a GitHub token in Settings to enable update checks.")
         }
         do {
-            var request = URLRequest(url: feedURL)
+            var request = URLRequest(url: UpdateFeed.latestReleaseAPIURL)
             request.timeoutInterval = 15
             request.cachePolicy = .reloadIgnoringLocalCacheData
+            request.setValue("token \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                return .failed("Update server returned an unexpected response.")
+            guard let http = response as? HTTPURLResponse else {
+                return .failed("Couldn't reach GitHub.")
             }
-            let info = try JSONDecoder().decode(UpdateInfo.self, from: data)
-            if isNewer(info.version, than: currentVersion) {
-                return .updateAvailable(info)
+            guard (200...299).contains(http.statusCode) else {
+                if http.statusCode == 401 || http.statusCode == 403 {
+                    return .failed("GitHub rejected the token in Settings. Check it hasn't expired.")
+                }
+                if http.statusCode == 404 {
+                    return .failed("No releases found yet.")
+                }
+                return .failed("GitHub returned an unexpected response (\(http.statusCode)).")
             }
-            return .upToDate
+            let release = try JSONDecoder().decode(GitHubRelease.self, from: data)
+            let version = release.tag_name.hasPrefix("v") ? String(release.tag_name.dropFirst()) : release.tag_name
+            guard isNewer(version, than: currentVersion) else {
+                return .upToDate
+            }
+            guard let asset = release.assets.first(where: { $0.name == UpdateFeed.assetName }) else {
+                return .failed("Release \(release.tag_name) is missing its \(UpdateFeed.assetName) asset.")
+            }
+            let info = UpdateInfo(version: version, releasePageURL: release.html_url, notes: release.body, assetAPIURL: asset.url)
+            return .updateAvailable(info)
         } catch {
             return .failed("Couldn't check for updates: \(error.localizedDescription)")
         }

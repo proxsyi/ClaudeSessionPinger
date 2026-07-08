@@ -15,6 +15,7 @@ struct SettingsView: View {
     @State private var isTesting = false
     @State private var showingLogin = false
     @State private var loginCaptured = false
+    @State private var githubTokenInput = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -110,10 +111,27 @@ struct SettingsView: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Updates").font(.system(size: 11)).foregroundColor(ClaudeTheme.textSecondary)
+                    SecureField(settings.githubToken.isEmpty ? "GitHub token (repo read access)" : settings.maskedGitHubToken, text: $githubTokenInput)
+                        .textFieldStyle(.roundedBorder)
+                    Text("Needed because releases live in a private GitHub repo. Use a fine-grained token scoped to just this repo with read-only Contents access.")
+                        .font(.system(size: 10))
+                        .foregroundColor(ClaudeTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     if let update = appState.availableUpdate {
                         Text("Version \(update.version) is available.")
                             .font(.system(size: 11))
                             .foregroundColor(ClaudeTheme.accent)
+                        if let installError = appState.installUpdateError {
+                            Text(installError)
+                                .font(.system(size: 10))
+                                .foregroundColor(.red)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Button(appState.isInstallingUpdate ? "Installing…" : "Install & Restart") {
+                            appState.installUpdate()
+                        }
+                        .claudePrimaryButton()
+                        .disabled(appState.isInstallingUpdate)
                     } else if let error = appState.updateCheckError {
                         Text(error)
                             .font(.system(size: 10))
@@ -128,7 +146,7 @@ struct SettingsView: View {
                         Task { await appState.checkForUpdates() }
                     }
                     .claudeGhostButton()
-                    .disabled(appState.isCheckingForUpdates)
+                    .disabled(appState.isCheckingForUpdates || appState.isInstallingUpdate)
                 }
             }
             .padding(20)
@@ -194,6 +212,7 @@ struct SettingsView: View {
         launchAtLogin = settings.launchAtLogin
         notifyOnFailure = settings.notifyOnFailure
         sessionKeyInput = ""
+        githubTokenInput = ""
         testResult = nil
     }
 
@@ -201,6 +220,10 @@ struct SettingsView: View {
         let trimmedSessionKeyInput = sessionKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedSessionKeyInput.isEmpty {
             settings.sessionKey = trimmedSessionKeyInput
+        }
+        let trimmedGitHubTokenInput = githubTokenInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedGitHubTokenInput.isEmpty {
+            settings.githubToken = trimmedGitHubTokenInput
         }
         settings.organizationID = organizationID.trimmingCharacters(in: .whitespacesAndNewlines)
         settings.model = model.trimmingCharacters(in: .whitespacesAndNewlines)

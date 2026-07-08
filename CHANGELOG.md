@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.5.0
+
+- Added real auto-updating: the app now checks the GitHub Releases API for this repo (using a GitHub token you paste into Settings, since the repo is private), and can download, install, and relaunch itself into a new version with one click ("Install & Restart") -- no more manual rebuilds to pick up a new release.
+- Added `Scripts/release.sh`, which builds the app, zips it, tags the current version, and publishes it as a GitHub release with that zip attached.
+
+## v1.4.2
+
+- Removed manual `WKProcessPool` sharing in the login web view -- deprecated since macOS 12 and no longer had any effect, so it was just dead code producing build warnings.
+- Settings now defaults the model slug to Claude Haiku 4.5 (`claude-haiku-4-5-20251001`) instead of leaving it blank, including for installs that had already saved an empty value.
+- Fixed the Settings schedule rows so the time stepper and remove button line up in a column instead of shifting based on the time label's width.
+- Fixed Settings buttons (including "Check for updates") sometimes rendering as an empty shape with no visible label, by wrapping the Settings view in a `GlassEffectContainer` like the menu bar popover already does.
+
 ## v1.4.1
 
 - Settings now only toggles with Cmd+, -- removed the Ctrl+, variant of the shortcut to avoid clashing with other apps' own Ctrl+, bindings.

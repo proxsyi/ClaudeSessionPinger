@@ -10,6 +10,8 @@ final class AppState: ObservableObject {
     @Published var availableUpdate: UpdateInfo?
     @Published var isCheckingForUpdates = false
     @Published var updateCheckError: String?
+    @Published var isInstallingUpdate = false
+    @Published var installUpdateError: String?
 
     let settings: SettingsStore
     let stats: StatsStore
@@ -173,6 +175,23 @@ final class AppState: ObservableObject {
             updateCheckError = message
         }
         isCheckingForUpdates = false
+    }
+
+    /// Downloads the available update's app bundle, swaps it in for this
+    /// running app, and relaunches it. On success this method never visibly
+    /// returns -- `Updater` terminates the app partway through the install.
+    func installUpdate() {
+        guard let update = availableUpdate, !isInstallingUpdate else { return }
+        isInstallingUpdate = true
+        installUpdateError = nil
+        Task {
+            do {
+                try await Updater.downloadAndInstall(update)
+            } catch {
+                self.isInstallingUpdate = false
+                self.installUpdateError = (error as? UpdaterError)?.localizedDescription ?? error.localizedDescription
+            }
+        }
     }
 
     private var runningInsideProperAppBundle: Bool {

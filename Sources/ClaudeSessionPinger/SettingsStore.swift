@@ -48,6 +48,15 @@ final class SettingsStore: ObservableObject {
             }
         }
     }
+    @Published var githubToken: String {
+        didSet {
+            if githubToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                KeychainStore.deleteGitHubToken()
+            } else {
+                try? KeychainStore.saveGitHubToken(githubToken)
+            }
+        }
+    }
 
     init() {
         let defaults = UserDefaults.standard
@@ -58,6 +67,7 @@ final class SettingsStore: ObservableObject {
         launchAtLogin = defaults.bool(forKey: Keys.launchAtLogin)
         notifyOnFailure = defaults.object(forKey: Keys.notifyOnFailure) == nil ? true : defaults.bool(forKey: Keys.notifyOnFailure)
         sessionKey = KeychainStore.load() ?? ""
+        githubToken = KeychainStore.loadGitHubToken() ?? ""
         if let data = defaults.data(forKey: Keys.scheduleSlots),
            let decoded = try? JSONDecoder().decode([ScheduleSlot].self, from: data),
            !decoded.isEmpty {
@@ -76,6 +86,12 @@ final class SettingsStore: ObservableObject {
     var maskedSessionKey: String {
         guard sessionKey.count > 4 else { return sessionKey.isEmpty ? "" : "••••" }
         let suffix = sessionKey.suffix(4)
+        return "••••••••" + suffix
+    }
+
+    var maskedGitHubToken: String {
+        guard githubToken.count > 4 else { return githubToken.isEmpty ? "" : "••••" }
+        let suffix = githubToken.suffix(4)
         return "••••••••" + suffix
     }
 }

@@ -62,12 +62,26 @@ struct MenuBarContentView: View {
                     .foregroundColor(ClaudeTheme.textSecondary)
                     .lineLimit(2)
             }
-            Button("Download update") {
-                if let url = URL(string: update.url) {
-                    NSWorkspace.shared.open(url)
-                }
+            if let installError = appState.installUpdateError {
+                Text(installError)
+                    .font(.system(size: 10))
+                    .foregroundColor(.red)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .claudeGhostButton()
+            HStack {
+                Button(appState.isInstallingUpdate ? "Installing…" : "Install & Restart") {
+                    appState.installUpdate()
+                }
+                .claudeGhostButton()
+                .disabled(appState.isInstallingUpdate)
+                Button("View release") {
+                    if let url = URL(string: update.releasePageURL) {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                .claudeGhostButton()
+                .disabled(appState.isInstallingUpdate)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
