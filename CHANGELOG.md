@@ -2,8 +2,8 @@
 
 ## v1.5.0
 
-- Added real auto-updating: the app now checks the GitHub Releases API for this repo (using a GitHub token you paste into Settings, since the repo is private), and can download, install, and relaunch itself into a new version with one click ("Install & Restart") -- no more manual rebuilds to pick up a new release.
-- Added `Scripts/release.sh`, which builds the app, zips it, tags the current version, and publishes it as a GitHub release with that zip attached.
+- Added real auto-updating: the app now checks this repo's public GitHub Releases and can download, install, and relaunch itself into a new version with one click ("Install & Restart") -- no more manual rebuilds to pick up a new release, and no token or login needed.
+- Added `Scripts/release.sh`, which builds the app, zips it, tags the current version, and publishes it as a GitHub release with that zip attached, so one script call ships an update.
 
 ## v1.4.2
 

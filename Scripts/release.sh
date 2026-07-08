@@ -31,6 +31,11 @@ fi
 git tag "${TAG}" 2>/dev/null || echo "Tag ${TAG} already exists locally."
 git push origin "${TAG}" 2>/dev/null || echo "Tag ${TAG} already pushed."
 
-gh release create "${TAG}" "dist/${ASSET_NAME}" --title "${TAG}" --notes "${NOTES}"
+if gh release view "${TAG}" >/dev/null 2>&1; then
+    echo "Release ${TAG} already exists -- updating its asset."
+    gh release upload "${TAG}" "dist/${ASSET_NAME}" --clobber
+else
+    gh release create "${TAG}" "dist/${ASSET_NAME}" --title "${TAG}" --notes "${NOTES}"
+fi
 
 echo "Released ${TAG}."
