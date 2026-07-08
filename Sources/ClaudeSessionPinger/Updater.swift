@@ -2,7 +2,6 @@ import Foundation
 import AppKit
 
 enum UpdaterError: LocalizedError {
-    case missingToken
     case badAssetURL
     case downloadFailed(String)
     case unzipFailed
@@ -10,8 +9,6 @@ enum UpdaterError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .missingToken:
-            return "Add a GitHub token in Settings to install updates."
         case .badAssetURL:
             return "The release asset URL looked invalid."
         case .downloadFailed(let message):
@@ -31,15 +28,11 @@ enum UpdaterError: LocalizedError {
 @MainActor
 enum Updater {
     static func downloadAndInstall(_ update: UpdateInfo) async throws {
-        guard let token = KeychainStore.loadGitHubToken(), !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw UpdaterError.missingToken
-        }
         guard let assetURL = URL(string: update.assetAPIURL) else {
             throw UpdaterError.badAssetURL
         }
 
         var request = URLRequest(url: assetURL)
-        request.setValue("token \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
         request.timeoutInterval = 180
 

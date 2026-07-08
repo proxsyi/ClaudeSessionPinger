@@ -1,13 +1,10 @@
 import Foundation
 
-/// Where this app checks for new releases: the GitHub Releases API for its
-/// own private repo. Each release must be tagged like "v1.5.0" and have a
+/// Where this app checks for new releases: the public GitHub Releases API
+/// for this repo. Each release must be tagged like "v1.5.0" and have a
 /// zipped app bundle attached as an asset named `assetName` below --
-/// `Scripts/release.sh` builds and publishes that automatically.
-///
-/// Because the repo is private, every request needs a GitHub token with at
-/// least read-only "Contents" access to this repo, pasted into Settings and
-/// stored in the Keychain -- never hardcoded here.
+/// `Scripts/release.sh` builds and publishes that automatically. Because the
+/// repo is public, no token or auth is needed to read releases.
 enum UpdateFeed {
     static let latestReleaseAPIURL = URL(string: "https://api.github.com/repos/proxsyi/ClaudeSessionPinger/releases/latest")!
     static let assetName = "ClaudeSessionPinger.app.zip"
@@ -57,23 +54,16 @@ enum UpdateChecker {
     }
 
     static func check(currentVersion: String) async -> UpdateCheckResult {
-        guard let token = KeychainStore.loadGitHubToken(), !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return .failed("Add a GitHub token in Settings to enable update checks.")
-        }
         do {
             var request = URLRequest(url: UpdateFeed.latestReleaseAPIURL)
             request.timeoutInterval = 15
             request.cachePolicy = .reloadIgnoringLocalCacheData
-            request.setValue("token \(token)", forHTTPHeaderField: "Authorization")
             request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else {
                 return .failed("Couldn't reach GitHub.")
             }
             guard (200...299).contains(http.statusCode) else {
-                if http.statusCode == 401 || http.statusCode == 403 {
-                    return .failed("GitHub rejected the token in Settings. Check it hasn't expired.")
-                }
                 if http.statusCode == 404 {
                     return .failed("No releases found yet.")
                 }
