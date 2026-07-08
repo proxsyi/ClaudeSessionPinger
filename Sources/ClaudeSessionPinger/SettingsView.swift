@@ -32,7 +32,9 @@ struct SettingsView: View {
                 Spacer()
             }
             .padding(.horizontal, 20)
-            .padding(.top, 14)
+            // Content extends under the title bar (fullSizeContentView), so
+            // push the header below the traffic-light buttons.
+            .padding(.top, 38)
             .padding(.bottom, 10)
 
             Divider()
@@ -64,6 +66,7 @@ struct SettingsView: View {
                 .claudeGlassContainer()
                 .padding(20)
             }
+            .scrollIndicators(.hidden)
             .clipped()
 
             Divider()

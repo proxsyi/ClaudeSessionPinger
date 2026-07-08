@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.11.0
+
+- Fixed the keychain password prompt reappearing after every update: the stored session entries were created by older ad-hoc-signed builds, so macOS never treated new builds as their owner. On first launch the app now re-creates its keychain entries under the stable signing identity (one final prompt during this migration, then never again).
+- Settings window glass now extends under the title bar, removing the transparent strip and the doubled "Settings" title.
+- Settings header clears the traffic-light buttons, and the scroll bar no longer draws on top of the content.
+
 ## v1.10.0
 
 - Fixed usage notifications re-alerting limits that were already hit: the first fetch after launch now records existing usage silently, and server-side jitter in window reset timestamps no longer wipes the "already notified" memory (this was the source of the random repeat alerts).

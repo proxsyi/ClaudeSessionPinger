@@ -53,7 +53,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let hosting = NSHostingController(rootView: rootView)
         let newWindow = NSWindow(contentViewController: hosting)
         newWindow.title = "Settings"
-        newWindow.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        newWindow.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        // The view draws its own "Settings" header, so hide the system
+        // title text; fullSizeContentView lets the glass background extend
+        // under the title bar instead of leaving a raw transparent strip
+        // with a duplicated title.
+        newWindow.titleVisibility = .hidden
         // Let the system's behind-window glass show through: the SwiftUI
         // root view draws its own NSVisualEffectView background, so the
         // window chrome itself must be transparent.

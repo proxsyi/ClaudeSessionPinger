@@ -26,6 +26,7 @@ final class SettingsStore: ObservableObject {
         static let weeklyUsageThresholds = "weeklyUsageThresholds"
         static let autoModel = "autoModel"
         static let autoUpdateEnabled = "autoUpdateEnabled"
+        static let keychainOwnershipMigrated = "keychainOwnershipMigrated"
     }
 
     @Published var organizationID: String {
@@ -125,8 +126,23 @@ final class SettingsStore: ObservableObject {
         } else {
             weeklyUsageThresholds = SettingsStore.defaultWeeklyThresholds
         }
-        sessionKey = KeychainStore.load() ?? ""
-        cookieHeader = KeychainStore.load(account: "cookieHeader") ?? ""
+        let storedSessionKey = KeychainStore.load() ?? ""
+        let storedCookieHeader = KeychainStore.load(account: "cookieHeader") ?? ""
+        sessionKey = storedSessionKey
+        cookieHeader = storedCookieHeader
+        // One-time ownership migration: the stored keychain items were
+        // created by earlier ad-hoc-signed builds, and macOS grants silent
+        // access based on the item's creator -- so every differently signed
+        // build re-prompted for the keychain password. Re-saving the items
+        // (delete + add) makes THIS stably signed app their creator, ending
+        // the prompts for good, including across future updates.
+        if defaults.object(forKey: Keys.keychainOwnershipMigrated) == nil, !storedSessionKey.isEmpty {
+            try? KeychainStore.save(storedSessionKey)
+            if !storedCookieHeader.isEmpty {
+                try? KeychainStore.save(storedCookieHeader, account: "cookieHeader")
+            }
+            defaults.set(true, forKey: Keys.keychainOwnershipMigrated)
+        }
         autoModel = defaults.object(forKey: Keys.autoModel) == nil ? true : defaults.bool(forKey: Keys.autoModel)
         autoUpdateEnabled = defaults.object(forKey: Keys.autoUpdateEnabled) == nil ? true : defaults.bool(forKey: Keys.autoUpdateEnabled)
         if let data = defaults.data(forKey: Keys.scheduleSlots),
