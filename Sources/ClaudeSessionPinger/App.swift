@@ -21,12 +21,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// satisfy the `App` protocol -- we drive our real Settings window from
     /// `SettingsWindowController`. Because it's the app's only SwiftUI scene,
     /// macOS can open (or restore) it as a blank "<App Name> Settings" window
-    /// on launch. We never want it, so close any stray window that shows up
-    /// right after launch. Our own Settings window is created lazily on demand
-    /// and titled exactly "Settings", so it's left alone.
+    /// on launch. Close only that specific window -- its title ends in
+    /// " Settings" -- so we never touch the status item's own window or the
+    /// popover (both have empty titles) or our real Settings window (titled
+    /// exactly "Settings"). Closing those by mistake made the menu bar item
+    /// stop opening.
     private func closeStraySwiftUIWindows() {
         DispatchQueue.main.async {
-            for window in NSApp.windows where window.isVisible && window.title != "Settings" {
+            for window in NSApp.windows where window.title.hasSuffix(" Settings") {
                 window.close()
             }
         }

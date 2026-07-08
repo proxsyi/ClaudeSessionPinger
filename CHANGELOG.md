@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.5.3
+
+- Fixed the menu bar icon not opening its popover: the launch-time cleanup that hides the stray empty Settings window was too broad and also closed the status item's own window. It now closes only the leftover "<App Name> Settings" window and leaves the menu bar item and popover alone.
+
+## v1.5.2
+
+- The build script now signs the app with a stable code-signing identity when one is available (falling back to ad-hoc otherwise), so once a signing certificate exists the macOS keychain stops re-prompting for access after every update.
+
 ## v1.5.1
 
 - Fixed a blank "Session Pinger Settings" window that could appear on launch: it was the leftover empty SwiftUI settings scene, which is now closed automatically so only the real Settings window ever shows.
