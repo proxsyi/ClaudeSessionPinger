@@ -18,6 +18,9 @@ struct MenuBarContentView: View {
                     .padding(12)
                     .glassPanel(tint: .green)
             }
+            usageSection
+                .padding(12)
+                .glassPanel()
             countdownSection
                 .padding(12)
                 .glassPanel(tint: ClaudeTheme.accent)
@@ -28,7 +31,7 @@ struct MenuBarContentView: View {
         }
         .claudeGlassContainer(spacing: 12)
         .padding(16)
-        .frame(width: 300)
+        .frame(width: 320)
         .background(.regularMaterial)
         .onReceive(clockTimer) { value in
             now = value
@@ -97,6 +100,147 @@ struct MenuBarContentView: View {
         case .failure:
             return .red
         }
+    }
+
+    private var usageSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Claude Usage")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(ClaudeTheme.textPrimary)
+
+            usageRow(
+                title: "Session (5 hour)",
+                percent: appState.usage?.sessionPercent,
+                resetText: sessionResetText
+            )
+            usageRow(
+                title: "Weekly (7 day)",
+                percent: appState.usage?.weeklyPercent,
+                resetText: weeklyResetText
+            )
+
+            if let error = appState.usageError {
+                Text(error)
+                    .font(.system(size: 10))
+                    .foregroundColor(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Divider()
+
+            serviceStatusRow
+
+            HStack {
+                Text(lastUpdatedText)
+                    .font(.system(size: 10))
+                    .foregroundColor(ClaudeTheme.textSecondary)
+                Spacer()
+                Button(appState.isRefreshingUsage ? "Refreshing…" : "Refresh") {
+                    Task { await appState.refreshUsage() }
+                }
+                .claudeGhostButton()
+                .disabled(appState.isRefreshingUsage)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func usageRow(title: String, percent: Int?, resetText: String?) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(ClaudeTheme.textPrimary)
+                Spacer()
+                if let resetText {
+                    Text(resetText)
+                        .font(.system(size: 10))
+                        .foregroundColor(ClaudeTheme.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            usageBar(percent: percent)
+            Text(percent.map { "\($0)% used" } ?? "No data yet")
+                .font(.system(size: 11))
+                .foregroundColor(ClaudeTheme.textSecondary)
+        }
+    }
+
+    private func usageBar(percent: Int?) -> some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color.primary.opacity(0.12))
+                Capsule()
+                    .fill(usageBarColor(percent: percent))
+                    .frame(width: geo.size.width * CGFloat(min(max(percent ?? 0, 0), 100)) / 100)
+            }
+        }
+        .frame(height: 5)
+    }
+
+    private func usageBarColor(percent: Int?) -> Color {
+        guard let percent else { return .gray }
+        if percent < 70 { return .green }
+        if percent < 90 { return .yellow }
+        return .red
+    }
+
+    private var serviceStatusRow: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(serviceStatusColor)
+                    .frame(width: 8, height: 8)
+                Text(appState.serviceStatus?.message ?? "Checking Claude service status…")
+                    .font(.system(size: 11))
+                    .foregroundColor(ClaudeTheme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text(serviceStatusDetail)
+                .font(.system(size: 10))
+                .foregroundColor(ClaudeTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var serviceStatusColor: Color {
+        guard let status = appState.serviceStatus else { return .gray }
+        return status.operational ? .green : .orange
+    }
+
+    private var serviceStatusDetail: String {
+        var text = "Tracks claude.ai, Claude Console, Claude API, Claude Code +1"
+        if let checked = appState.serviceStatus?.checkedAt {
+            text += " · checked \(relativeTimeText(since: checked))"
+        }
+        return text
+    }
+
+    private func relativeTimeText(since date: Date) -> String {
+        let seconds = Int(max(0, now.timeIntervalSince(date)))
+        if seconds < 60 { return "just now" }
+        let minutes = seconds / 60
+        if minutes < 60 { return "\(minutes) min ago" }
+        return "\(minutes / 60)h ago"
+    }
+
+    private var sessionResetText: String? {
+        guard let date = appState.usage?.sessionResetsAt else { return nil }
+        return "Resets at \(date.formatted(date: .omitted, time: .shortened))"
+    }
+
+    private var weeklyResetText: String? {
+        guard let date = appState.usage?.weeklyResetsAt else { return nil }
+        let day = date.formatted(.dateTime.day().month(.abbreviated).year())
+        let time = date.formatted(date: .omitted, time: .shortened)
+        return "Resets on \(day) at \(time)"
+    }
+
+    private var lastUpdatedText: String {
+        guard let fetched = appState.usage?.fetchedAt else { return "Not updated yet" }
+        return "Last updated: \(fetched.formatted(date: .omitted, time: .shortened))"
     }
 
     private var countdownSection: some View {

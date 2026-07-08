@@ -12,6 +12,10 @@ final class AppState: ObservableObject {
     @Published var updateCheckError: String?
     @Published var isInstallingUpdate = false
     @Published var installUpdateError: String?
+    @Published var usage: ClaudeUsage?
+    @Published var usageError: String?
+    @Published var isRefreshingUsage = false
+    @Published var serviceStatus: ClaudeServiceStatus?
 
     let settings: SettingsStore
     let stats: StatsStore
@@ -35,11 +39,13 @@ final class AppState: ObservableObject {
         NotificationCenter.default.addObserver(self, selector: #selector(handleWake), name: NSWorkspace.didWakeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleTimeZoneChange), name: NSNotification.Name.NSSystemTimeZoneDidChange, object: nil)
         scheduleUpdateChecks()
+        scheduleUsageRefreshes()
     }
 
     deinit {
         NotificationCenter.default.removeObserver(self)
         updateTimer?.invalidate()
+        usageTimer?.invalidate()
     }
 
     func rescheduleTimer() {
@@ -157,6 +163,50 @@ final class AppState: ObservableObject {
         updateTimer = Timer.scheduledTimer(withTimeInterval: 60 * 60 * 24, repeats: true) { [weak self] _ in
             Task { await self?.checkForUpdates() }
         }
+    }
+
+    private var usageTimer: Timer?
+
+    /// Fetches usage shortly after launch, then every 5 minutes, mirroring how
+    /// ClaudeUsageBar keeps its numbers fresh. Failures only set `usageError`
+    /// and never interrupt pinging.
+    private func scheduleUsageRefreshes() {
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            await self?.refreshUsage()
+        }
+        usageTimer?.invalidate()
+        usageTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            Task { await self?.refreshUsage() }
+        }
+    }
+
+    /// Used when the popover opens: refresh only if the data is older than a
+    /// minute so opening the popover shows fresh numbers without hammering
+    /// the API on every click.
+    func refreshUsageIfStale() async {
+        if let fetched = usage?.fetchedAt, Date().timeIntervalSince(fetched) < 60 { return }
+        await refreshUsage()
+    }
+
+    func refreshUsage() async {
+        guard !isRefreshingUsage else { return }
+        isRefreshingUsage = true
+        async let statusCheck = UsageChecker.fetchServiceStatus()
+        do {
+            let fetched = try await UsageChecker.fetchUsage(
+                sessionKey: settings.sessionKey,
+                organizationID: settings.organizationID
+            )
+            usage = fetched
+            usageError = nil
+        } catch {
+            usageError = (error as? UsageError)?.localizedDescription ?? error.localizedDescription
+        }
+        if let status = await statusCheck {
+            serviceStatus = status
+        }
+        isRefreshingUsage = false
     }
 
     func checkForUpdates() async {

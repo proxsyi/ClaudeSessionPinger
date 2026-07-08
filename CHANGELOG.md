@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.6.0
+
+- Added ClaudeUsageBar-style Claude usage tracking to the menu bar popover: session (5-hour) and weekly (7-day) usage bars with reset times, read from the same claude.ai endpoint that powers claude.ai/settings/usage using the session key the app already stores, plus a Claude service status line and a manual Refresh button. Usage auto-refreshes every 5 minutes and when the popover opens.
+- The menu bar item is now a 16x16 color-coded starburst (green under 70%, yellow from 70%, red from 90% session usage; gray while unknown) with the current session percentage shown next to it, replacing the old status circle icons. Ping status remains visible via the colored dot in the popover header.
+
 ## v1.5.3
 
 - Fixed the menu bar icon not opening its popover: the launch-time cleanup that hides the stray empty Settings window was too broad and also closed the status item's own window. It now closes only the leftover "<App Name> Settings" window and leaves the menu bar item and popover alone.
