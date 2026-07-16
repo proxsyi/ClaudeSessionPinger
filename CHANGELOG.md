@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.12.0
+
+- The menu bar icon now turns crimson at 100% session usage and shows a live countdown until the session resets.
+- Moved success rate, the last ping result, errors, and the manual Ping now action from the popover into a new Settings Activity section.
+- Replaced automatic model mode with a manual model picker. The selected model is always tried first, with detected and known models used as fallbacks if Claude rejects it.
+- Added 25%, 50%, 75%, 90%, 95%, and 100% notification threshold choices for session and weekly usage.
+- Aligned schedule times into fixed time and AM/PM columns.
+- The main countdown now follows the next usable session when the current window is maxed out, with the next scheduled ping shown underneath.
+- Re-runs the stable-signing keychain ownership repair once so legacy credentials stop asking for a password on later launches.
+
 ## v1.11.0
 
 - Fixed the keychain password prompt reappearing after every update: the stored session entries were created by older ad-hoc-signed builds, so macOS never treated new builds as their owner. On first launch the app now re-creates its keychain entries under the stable signing identity (one final prompt during this migration, then never again).

@@ -166,13 +166,17 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Ordered model slugs to try for a ping. Manual mode pins the user's
-    /// model; automatic mode uses the detected list (or the known fallbacks),
-    /// lightest model first.
+    /// Try the user's selected model first, then detected and known fallbacks
+    /// from lightest to heaviest if Claude rejects that model.
     private func modelCandidates() -> [String] {
-        guard settings.autoModel else { return [settings.model] }
-        let pool = availableModels.isEmpty ? UsageChecker.fallbackModels : availableModels
-        return pool.sorted { modelRank($0) < modelRank($1) }
+        let selected = settings.model.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackPool = (availableModels + UsageChecker.fallbackModels)
+            .sorted { modelRank($0) < modelRank($1) }
+        var candidates = selected.isEmpty ? [] : [selected]
+        for model in fallbackPool where !candidates.contains(model) {
+            candidates.append(model)
+        }
+        return candidates
     }
 
     private func modelRank(_ slug: String) -> Int {
@@ -253,15 +257,13 @@ final class AppState: ObservableObject {
             notifyServiceChangeIfNeeded(newStatus: status)
             serviceStatus = status
         }
-        if settings.autoModel {
-            let models = await UsageChecker.fetchAvailableModels(
-                sessionKey: settings.sessionKey,
-                organizationID: settings.organizationID,
-                cookieHeader: settings.effectiveCookieHeader
-            )
-            if !models.isEmpty {
-                availableModels = models
-            }
+        let models = await UsageChecker.fetchAvailableModels(
+            sessionKey: settings.sessionKey,
+            organizationID: settings.organizationID,
+            cookieHeader: settings.effectiveCookieHeader
+        )
+        if !models.isEmpty {
+            availableModels = models.sorted { modelRank($0) < modelRank($1) }
         }
         isRefreshingUsage = false
     }

@@ -5,7 +5,6 @@ import Combine
 struct MenuBarContentView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var settings: SettingsStore
-    @EnvironmentObject var stats: StatsStore
     @State private var now = Date()
 
     private let clockTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -22,9 +21,6 @@ struct MenuBarContentView: View {
                 .padding(14)
                 .glassPanel()
             countdownSection
-                .padding(14)
-                .glassPanel()
-            statsSection
                 .padding(14)
                 .glassPanel()
             actionsSection
@@ -239,22 +235,42 @@ struct MenuBarContentView: View {
 
     private var countdownSection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            SectionHeader(text: "Next session in")
-            Text(countdownText)
+            SectionHeader(text: "Next possible session in")
+            Text(nextPossibleSessionCountdown)
                 .font(.system(size: 28, weight: .semibold, design: .rounded).monospacedDigit())
                 .foregroundColor(ClaudeTheme.textPrimary)
-            if let next = appState.nextFireDate {
-                Text(next.formatted(date: .omitted, time: .shortened))
-                    .font(.system(size: 11))
-                    .foregroundColor(ClaudeTheme.textSecondary)
+            if let scheduledText = scheduledSessionText {
+                Text(scheduledText)
+                    .font(.system(size: 10))
+                    .foregroundColor(ClaudeTheme.textSecondary.opacity(0.8))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var countdownText: String {
-        guard let next = appState.nextFireDate else { return "Not scheduled" }
-        let remaining = max(0, next.timeIntervalSince(now))
+    private var nextPossibleSessionDate: Date? {
+        if let percent = appState.usage?.sessionPercent,
+           percent >= 100,
+           let reset = appState.usage?.sessionResetsAt,
+           reset > now {
+            return reset
+        }
+        return appState.nextFireDate
+    }
+
+    private var nextPossibleSessionCountdown: String {
+        guard let next = nextPossibleSessionDate else { return "Not scheduled" }
+        return durationText(until: next)
+    }
+
+    private var scheduledSessionText: String? {
+        guard let next = appState.nextFireDate else { return nil }
+        let time = next.formatted(date: .omitted, time: .shortened)
+        return "Scheduled ping in \(durationText(until: next)) · \(time)"
+    }
+
+    private func durationText(until date: Date) -> String {
+        let remaining = max(0, date.timeIntervalSince(now))
         let hours = Int(remaining) / 3600
         let minutes = (Int(remaining) % 3600) / 60
         let seconds = Int(remaining) % 60
@@ -264,68 +280,18 @@ struct MenuBarContentView: View {
         return String(format: "%dm %02ds", minutes, seconds)
     }
 
-    private var statsSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Success rate")
-                    .font(.system(size: 11))
-                    .foregroundColor(ClaudeTheme.textSecondary)
-                Spacer()
-                Text(successRateText)
-                    .font(.system(size: 12, weight: .medium).monospacedDigit())
-                    .foregroundColor(ClaudeTheme.textPrimary)
-            }
-            HStack {
-                Text("Last result")
-                    .font(.system(size: 11))
-                    .foregroundColor(ClaudeTheme.textSecondary)
-                Spacer()
-                Text(lastResultText)
-                    .font(.system(size: 11))
-                    .foregroundColor(ClaudeTheme.textPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            if let error = appState.lastError {
-                Text(error)
-                    .font(.system(size: 11))
-                    .foregroundColor(.red)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var successRateText: String {
-        guard stats.totalCount > 0 else { return "No pings yet" }
-        return "\(stats.successCount)/\(stats.totalCount) (\(Int(stats.successRate * 100))%)"
-    }
-
-    private var lastResultText: String {
-        guard let last = stats.lastRecord else { return "\u{2014}" }
-        return last.summary
-    }
-
     private var actionsSection: some View {
-        VStack(spacing: 8) {
-            Button(action: { appState.pingNow() }) {
-                Text(appState.status == .sending ? "Sending\u{2026}" : "Ping now")
+        HStack {
+            Button("Settings") {
+                appState.requestShowSettings?()
+                appState.requestClosePopover?()
             }
-            .claudePrimaryButton()
-            .disabled(appState.status == .sending)
-
-            HStack {
-                Button("Settings") {
-                    appState.requestShowSettings?()
-                    appState.requestClosePopover?()
-                }
-                .claudeGhostButton()
-                Spacer()
-                Button("Quit") {
-                    NSApp.terminate(nil)
-                }
-                .claudeGhostButton()
+            .claudeGhostButton()
+            Spacer()
+            Button("Quit") {
+                NSApp.terminate(nil)
             }
+            .claudeGhostButton()
         }
     }
 }

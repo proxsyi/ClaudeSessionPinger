@@ -3,10 +3,10 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject var settings: SettingsStore
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject var stats: StatsStore
 
     @State private var sessionKeyInput = ""
     @State private var organizationID = ""
-    @State private var autoModel = true
     @State private var model = ""
     @State private var message = ""
     @State private var slots: [ScheduleSlot] = []
@@ -51,6 +51,9 @@ struct SettingsView: View {
                         .padding(14)
                         .glassPanel()
                     pingSection
+                        .padding(14)
+                        .glassPanel()
+                    activitySection
                         .padding(14)
                         .glassPanel()
                     notificationsSection
@@ -184,14 +187,16 @@ struct SettingsView: View {
             SectionHeader(text: "Ping")
 
             VStack(alignment: .leading, spacing: 6) {
-                toggleRow("Automatic model (recommended)", isOn: $autoModel)
-                if autoModel {
-                    caption(autoModelCaption)
-                } else {
-                    fieldLabel("Model slug")
-                    TextField("claude-haiku-4-5-...", text: $model)
-                        .textFieldStyle(.roundedBorder)
+                fieldLabel("Model")
+                Picker("Model", selection: $model) {
+                    ForEach(modelOptions, id: \.self) { slug in
+                        Text(modelLabel(slug)).tag(slug)
+                    }
                 }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                caption("Your choice is tried first. If Claude rejects it, the app falls back to another available model.")
             }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -208,10 +213,14 @@ struct SettingsView: View {
                             get: { slots[index].hour },
                             set: { slots[index].hour = $0 }
                         ), in: 0...23) {
-                            Text(formattedTime(hour: slots[index].hour, minute: slots[index].minute))
-                                .font(.system(size: 12).monospacedDigit())
-                                .foregroundColor(ClaudeTheme.textPrimary)
-                                .frame(width: 84, alignment: .leading)
+                            HStack(spacing: 12) {
+                                Text(formattedTimeNumbers(hour: slots[index].hour, minute: slots[index].minute))
+                                    .frame(width: 48, alignment: .leading)
+                                Text(timePeriod(hour: slots[index].hour))
+                                    .frame(width: 24, alignment: .leading)
+                            }
+                            .font(.system(size: 12).monospacedDigit())
+                            .foregroundColor(ClaudeTheme.textPrimary)
                         }
                         Spacer()
                         Button(action: { slots.remove(at: index) }) {
@@ -231,13 +240,75 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var autoModelCaption: String {
-        let detected = appState.availableModels
-        let current = appState.activeModel ?? detected.first ?? UsageChecker.fallbackModels[0]
-        if detected.isEmpty {
-            return "Detects the models your account can use and switches automatically. Currently: \(current)"
+    private var modelOptions: [String] {
+        let selected = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        var options = selected.isEmpty ? [] : [selected]
+        let pool = appState.availableModels + UsageChecker.fallbackModels
+        for slug in pool.sorted(by: { modelRank($0) < modelRank($1) }) where !options.contains(slug) {
+            options.append(slug)
         }
-        return "Detected \(detected.count) available model\(detected.count == 1 ? "" : "s"). Currently: \(current)"
+        return options
+    }
+
+    private func modelRank(_ slug: String) -> Int {
+        if slug.contains("haiku") { return 0 }
+        if slug.contains("sonnet") { return 1 }
+        if slug.contains("opus") { return 2 }
+        return 3
+    }
+
+    private func modelLabel(_ slug: String) -> String {
+        if slug.contains("haiku") { return "Haiku (suggested) — \(slug)" }
+        if slug.contains("sonnet") { return "Sonnet — \(slug)" }
+        if slug.contains("opus") { return "Opus — \(slug)" }
+        return slug
+    }
+
+    private var activitySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(text: "Activity")
+
+            HStack {
+                fieldLabel("Success rate")
+                Spacer()
+                Text(successRateText)
+                    .font(.system(size: 12, weight: .medium).monospacedDigit())
+                    .foregroundColor(ClaudeTheme.textPrimary)
+            }
+
+            HStack(alignment: .firstTextBaseline) {
+                fieldLabel("Last result")
+                Spacer()
+                Text(stats.lastRecord?.summary ?? "—")
+                    .font(.system(size: 11))
+                    .foregroundColor(ClaudeTheme.textPrimary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.trailing)
+            }
+
+            if let error = appState.lastError {
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundColor(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let activeModel = appState.activeModel {
+                caption("Last successful model: \(activeModel)")
+            }
+
+            Button(appState.status == .sending ? "Sending\u{2026}" : "Ping now") {
+                appState.pingNow()
+            }
+            .claudePrimaryButton()
+            .disabled(appState.status == .sending)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var successRateText: String {
+        guard stats.totalCount > 0 else { return "No pings yet" }
+        return "\(stats.successCount)/\(stats.totalCount) (\(Int(stats.successRate * 100))%)"
     }
 
     private var notificationsSection: some View {
@@ -378,13 +449,13 @@ struct SettingsView: View {
         (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "?"
     }
 
-    /// Formats a 24-hour `hour`/`minute` pair as a fixed 12-hour clock string
-    /// (e.g. "5:00 AM", "3:00 PM"), regardless of the system's clock format
-    /// setting, since the schedule is easier to scan that way.
-    private func formattedTime(hour: Int, minute: Int) -> String {
-        let period = hour < 12 ? "AM" : "PM"
+    private func formattedTimeNumbers(hour: Int, minute: Int) -> String {
         let displayHour = hour % 12 == 0 ? 12 : hour % 12
-        return String(format: "%d:%02d %@", displayHour, minute, period)
+        return String(format: "%d:%02d", displayHour, minute)
+    }
+
+    private func timePeriod(hour: Int) -> String {
+        hour < 12 ? "AM" : "PM"
     }
 
     /// Login finished: store the session and the full cookie header, then
@@ -420,7 +491,6 @@ struct SettingsView: View {
 
     private func loadCurrentValues() {
         organizationID = settings.organizationID
-        autoModel = settings.autoModel
         model = settings.model
         message = settings.message
         slots = settings.scheduleSlots
@@ -441,11 +511,8 @@ struct SettingsView: View {
             settings.sessionKey = trimmedSessionKeyInput
         }
         settings.organizationID = organizationID.trimmingCharacters(in: .whitespacesAndNewlines)
-        settings.autoModel = autoModel
         let trimmedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !autoModel {
-            settings.model = trimmedModel.isEmpty ? UsageChecker.fallbackModels[0] : trimmedModel
-        }
+        settings.model = trimmedModel.isEmpty ? UsageChecker.fallbackModels[0] : trimmedModel
         let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
         settings.message = trimmedMessage.isEmpty ? "Say 1" : trimmedMessage
         settings.scheduleSlots = slots.isEmpty ? SettingsStore.defaultSlots : slots
@@ -467,10 +534,8 @@ struct SettingsView: View {
         let trimmedInput = sessionKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
         let keyToTest = trimmedInput.isEmpty ? settings.sessionKey : trimmedInput
         let orgToTest = organizationID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let manualModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
-        let modelToTest = autoModel
-            ? (appState.activeModel ?? appState.availableModels.first ?? UsageChecker.fallbackModels[0])
-            : manualModel
+        let selectedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        let modelToTest = selectedModel.isEmpty ? UsageChecker.fallbackModels[0] : selectedModel
         let messageToTest = message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Say 1" : message
         // A manually pasted key can't be paired with the stored cookies (they
         // belong to the previous session), so fall back to just that key.

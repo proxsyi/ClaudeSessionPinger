@@ -2,7 +2,7 @@ import Foundation
 
 final class SettingsStore: ObservableObject {
     /// Usage-alert percentages the user can pick from in Settings.
-    static let availableThresholds = [50, 75, 90, 95]
+    static let availableThresholds = [25, 50, 75, 90, 95, 100]
     static let defaultSessionThresholds = [75, 90]
     static let defaultWeeklyThresholds = [75, 90]
 
@@ -24,10 +24,11 @@ final class SettingsStore: ObservableObject {
         static let notifyOnServiceDegraded = "notifyOnServiceDegraded"
         static let sessionUsageThresholds = "sessionUsageThresholds"
         static let weeklyUsageThresholds = "weeklyUsageThresholds"
-        static let autoModel = "autoModel"
         static let autoUpdateEnabled = "autoUpdateEnabled"
-        static let keychainOwnershipMigrated = "keychainOwnershipMigrated"
+        static let keychainOwnershipMigrationVersion = "keychainOwnershipMigrationVersion"
     }
+
+    private static let currentKeychainOwnershipMigrationVersion = 2
 
     @Published var organizationID: String {
         didSet { UserDefaults.standard.set(organizationID, forKey: Keys.organizationID) }
@@ -72,11 +73,6 @@ final class SettingsStore: ObservableObject {
                 UserDefaults.standard.set(data, forKey: Keys.weeklyUsageThresholds)
             }
         }
-    }
-    /// When true, the app picks the lightest Claude model it detects as
-    /// available instead of using the fixed `model` slug.
-    @Published var autoModel: Bool {
-        didSet { UserDefaults.standard.set(autoModel, forKey: Keys.autoModel) }
     }
     /// When true, new releases are downloaded and installed automatically as
     /// soon as the daily check finds one.
@@ -130,20 +126,17 @@ final class SettingsStore: ObservableObject {
         let storedCookieHeader = KeychainStore.load(account: "cookieHeader") ?? ""
         sessionKey = storedSessionKey
         cookieHeader = storedCookieHeader
-        // One-time ownership migration: the stored keychain items were
-        // created by earlier ad-hoc-signed builds, and macOS grants silent
-        // access based on the item's creator -- so every differently signed
-        // build re-prompted for the keychain password. Re-saving the items
-        // (delete + add) makes THIS stably signed app their creator, ending
-        // the prompts for good, including across future updates.
-        if defaults.object(forKey: Keys.keychainOwnershipMigrated) == nil, !storedSessionKey.isEmpty {
+        // Re-create legacy keychain items under the current stable signing
+        // identity. Versioning this migration lets an older, incomplete
+        // migration be repaired once without repeating it every launch.
+        if defaults.integer(forKey: Keys.keychainOwnershipMigrationVersion) < Self.currentKeychainOwnershipMigrationVersion,
+           !storedSessionKey.isEmpty {
             try? KeychainStore.save(storedSessionKey)
             if !storedCookieHeader.isEmpty {
                 try? KeychainStore.save(storedCookieHeader, account: "cookieHeader")
             }
-            defaults.set(true, forKey: Keys.keychainOwnershipMigrated)
+            defaults.set(Self.currentKeychainOwnershipMigrationVersion, forKey: Keys.keychainOwnershipMigrationVersion)
         }
-        autoModel = defaults.object(forKey: Keys.autoModel) == nil ? true : defaults.bool(forKey: Keys.autoModel)
         autoUpdateEnabled = defaults.object(forKey: Keys.autoUpdateEnabled) == nil ? true : defaults.bool(forKey: Keys.autoUpdateEnabled)
         if let data = defaults.data(forKey: Keys.scheduleSlots),
            let decoded = try? JSONDecoder().decode([ScheduleSlot].self, from: data),
