@@ -197,13 +197,13 @@ struct WindowGlassBackground: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
-        view.material = clearGlass ? .hudWindow : .popover
+        view.material = clearGlass ? .underWindowBackground : .popover
         view.blendingMode = .behindWindow
         view.state = .followsWindowActiveState
         return view
     }
 
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-        nsView.material = clearGlass ? .hudWindow : .popover
+        nsView.material = clearGlass ? .underWindowBackground : .popover
     }
 }

@@ -4,6 +4,8 @@
 
 - Reorganized Settings into General, Usage, Alerts, and App tabs, moved the title beside the traffic lights, and shortened the window.
 - Added Ping now to the next-session card and Command-U to toggle the menu bar popover.
+- Command-U now uses a permission-free global hot key, toggles the popover from any app, and releases the shortcut when disabled.
+- The full-width Liquid Glass settings rail supports clicking or dragging between tabs, with smoother page transitions.
 - Added configurable notifications for newly available and app-started sessions, plus an off-by-default option to start newly available sessions outside the schedule.
 - Switched custom surfaces to adaptive system Liquid Glass with a user-selectable clear appearance that follows macOS accessibility and appearance settings.
 

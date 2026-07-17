@@ -1,4 +1,8 @@
 import SwiftUI
+import Carbon.HIToolbox
+
+private let menuHotKeySignature: OSType = 0x53504E47 // "SPNG"
+private let menuHotKeyIdentifier: UInt32 = 1
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -8,14 +12,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBarController: StatusBarController?
     private var settingsWindowController: SettingsWindowController?
     private var settingsShortcutMonitor: Any?
-    private var menuShortcutMonitor: Any?
+    private var menuHotKeyRef: EventHotKeyRef?
+    private var menuHotKeyHandlerRef: EventHandlerRef?
+    private var menuShortcutSettingObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         settingsWindowController = SettingsWindowController(settings: settings, stats: stats, appState: appState)
         statusBarController = StatusBarController(settings: settings, stats: stats, appState: appState)
         installSettingsShortcut()
-        installMenuShortcut()
+        observeMenuShortcutSetting()
+        updateMenuHotKeyRegistration()
         closeStraySwiftUIWindows()
     }
 
@@ -40,9 +47,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let settingsShortcutMonitor {
             NSEvent.removeMonitor(settingsShortcutMonitor)
         }
-        if let menuShortcutMonitor {
-            NSEvent.removeMonitor(menuShortcutMonitor)
+        if let menuShortcutSettingObserver {
+            NotificationCenter.default.removeObserver(menuShortcutSettingObserver)
         }
+        unregisterMenuHotKey()
     }
 
     /// Cmd+, (the standard macOS Settings shortcut) opens Settings when it's
@@ -53,14 +61,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func installSettingsShortcut() {
         settingsShortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
-            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
             guard flags == .command else { return event }
             switch event.charactersIgnoringModifiers?.lowercased() {
             case ",":
                 self.appState.toggleSettingsWindow?()
-                return nil
-            case "u" where self.settings.enableCommandUShortcut:
-                self.appState.requestTogglePopover?()
                 return nil
             default:
                 return event
@@ -68,17 +73,87 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Command-U opens or closes the menu bar popover even while another app
-    /// is active. The setting is checked at event time, so disabling it takes
-    /// effect immediately without restarting Session Pinger.
-    private func installMenuShortcut() {
-        menuShortcutMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+    private func observeMenuShortcutSetting() {
+        menuShortcutSettingObserver = NotificationCenter.default.addObserver(
+            forName: .commandUShortcutSettingChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.updateMenuHotKeyRegistration() }
+        }
+    }
+
+    /// Carbon's registered hot-key API works globally without Accessibility
+    /// or Input Monitoring permission, unlike NSEvent's global key monitor.
+    private func updateMenuHotKeyRegistration() {
+        if settings.enableCommandUShortcut {
+            registerMenuHotKey()
+        } else {
+            unregisterMenuHotKey()
+        }
+    }
+
+    private func registerMenuHotKey() {
+        guard menuHotKeyRef == nil else { return }
+
+        var eventType = EventTypeSpec(
+            eventClass: OSType(kEventClassKeyboard),
+            eventKind: UInt32(kEventHotKeyPressed)
+        )
+        let handler: EventHandlerUPP = { _, event, userData in
+            guard let event, let userData else { return noErr }
+            var hotKeyID = EventHotKeyID()
+            let status = GetEventParameter(
+                event,
+                EventParamName(kEventParamDirectObject),
+                EventParamType(typeEventHotKeyID),
+                nil,
+                MemoryLayout<EventHotKeyID>.size,
+                nil,
+                &hotKeyID
+            )
+            guard status == noErr,
+                  hotKeyID.signature == menuHotKeySignature,
+                  hotKeyID.id == menuHotKeyIdentifier else { return noErr }
+            let appDelegate = Unmanaged<AppDelegate>.fromOpaque(userData).takeUnretainedValue()
             Task { @MainActor in
-                guard let self, self.settings.enableCommandUShortcut else { return }
-                let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-                guard flags == .command, event.charactersIgnoringModifiers?.lowercased() == "u" else { return }
-                self.appState.requestTogglePopover?()
+                appDelegate.appState.requestTogglePopover?()
             }
+            return noErr
+        }
+
+        let installStatus = InstallEventHandler(
+            GetApplicationEventTarget(),
+            handler,
+            1,
+            &eventType,
+            Unmanaged.passUnretained(self).toOpaque(),
+            &menuHotKeyHandlerRef
+        )
+        guard installStatus == noErr else { return }
+
+        let hotKeyID = EventHotKeyID(signature: menuHotKeySignature, id: menuHotKeyIdentifier)
+        let registerStatus = RegisterEventHotKey(
+            UInt32(kVK_ANSI_U),
+            UInt32(cmdKey),
+            hotKeyID,
+            GetApplicationEventTarget(),
+            0,
+            &menuHotKeyRef
+        )
+        if registerStatus != noErr {
+            unregisterMenuHotKey()
+        }
+    }
+
+    private func unregisterMenuHotKey() {
+        if let menuHotKeyRef {
+            UnregisterEventHotKey(menuHotKeyRef)
+            self.menuHotKeyRef = nil
+        }
+        if let menuHotKeyHandlerRef {
+            RemoveEventHandler(menuHotKeyHandlerRef)
+            self.menuHotKeyHandlerRef = nil
         }
     }
 }

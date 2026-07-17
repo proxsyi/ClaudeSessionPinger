@@ -28,6 +28,7 @@ struct MenuBarContentView: View {
         .claudeGlassContainer(spacing: 12)
         .padding(16)
         .frame(width: 320)
+        .background(WindowGlassBackground(clearGlass: settings.preferClearGlass).ignoresSafeArea())
         .onReceive(clockTimer) { value in
             now = value
         }
@@ -268,7 +269,7 @@ struct MenuBarContentView: View {
             Button(appState.status == .sending ? "Sending\u{2026}" : "Ping now") {
                 appState.pingNow()
             }
-            .claudeGhostButton()
+            .claudePrimaryButton()
             .disabled(appState.status == .sending)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

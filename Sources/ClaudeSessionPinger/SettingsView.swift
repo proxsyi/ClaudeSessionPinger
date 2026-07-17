@@ -8,6 +8,15 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
     case app = "App"
 
     var id: String { rawValue }
+
+    var symbol: String {
+        switch self {
+        case .general: return "slider.horizontal.3"
+        case .usage: return "chart.bar.fill"
+        case .alerts: return "bell.fill"
+        case .app: return "gearshape.fill"
+        }
+    }
 }
 
 struct SettingsView: View {
@@ -41,43 +50,33 @@ struct SettingsView: View {
     @State private var showingLogin = false
     @State private var loginCaptured = false
     @State private var isFetchingOrganization = false
+    @Namespace private var tabSelectionAnimation
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Spacer()
-                Text("Settings")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(ClaudeTheme.textPrimary)
-            }
-            .padding(.leading, 84)
-            .padding(.trailing, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 6)
-
-            Picker("Settings section", selection: $selectedTab) {
-                ForEach(SettingsTab.allCases) { tab in
-                    Text(tab.rawValue).tag(tab)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(.horizontal, 20)
-            .padding(.bottom, 10)
+            settingsTabBar
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
 
             Divider()
 
             ScrollView {
                 tabContent
-                .padding(20)
+                    .id(selectedTab)
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .trailing)),
+                        removal: .opacity.combined(with: .move(edge: .leading))
+                    ))
+                    .padding(20)
             }
+            .animation(.easeInOut(duration: 0.32), value: selectedTab)
             .scrollIndicators(.hidden)
             .clipped()
 
             Divider()
 
             footer
-                .background(.bar)
+                .background(WindowGlassBackground(clearGlass: settings.preferClearGlass))
         }
         .frame(width: 460, height: 600)
         .background(WindowGlassBackground(clearGlass: settings.preferClearGlass).ignoresSafeArea())
@@ -91,6 +90,77 @@ struct SettingsView: View {
                 )
             }
         }
+    }
+
+    @ViewBuilder
+    private var settingsTabBar: some View {
+        GeometryReader { proxy in
+            if #available(macOS 26.0, *) {
+                GlassEffectContainer(spacing: 6) {
+                    HStack(spacing: 4) {
+                        Color.clear
+                            .frame(width: 64)
+                            .accessibilityHidden(true)
+                        ForEach(SettingsTab.allCases) { tab in
+                            Button {
+                                selectTab(tab)
+                            } label: {
+                                Label(tab.rawValue, systemImage: tab.symbol)
+                                    .font(.system(size: 11, weight: selectedTab == tab ? .semibold : .medium))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 7)
+                                    .contentShape(Capsule(style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(selectedTab == tab ? Color.white : ClaudeTheme.textSecondary)
+                            .background {
+                                if selectedTab == tab {
+                                    Capsule(style: .continuous)
+                                        .fill(Color.clear)
+                                        .glassEffect(
+                                            .regular.tint(ClaudeTheme.accent).interactive(),
+                                            in: Capsule(style: .continuous)
+                                        )
+                                        .matchedGeometryEffect(id: "selected-settings-tab", in: tabSelectionAnimation)
+                                }
+                            }
+                        }
+                    }
+                    .padding(4)
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Capsule(style: .continuous))
+                    .glassEffect(.clear.interactive(), in: Capsule(style: .continuous))
+                    .simultaneousGesture(tabDragGesture(width: proxy.size.width))
+                }
+            } else {
+                Picker("Settings section", selection: $selectedTab) {
+                    ForEach(SettingsTab.allCases) { tab in
+                        Text(tab.rawValue).tag(tab)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+        }
+        .frame(height: 42)
+    }
+
+    private func selectTab(_ tab: SettingsTab) {
+        guard tab != selectedTab else { return }
+        withAnimation(.easeInOut(duration: 0.32)) {
+            selectedTab = tab
+        }
+    }
+
+    private func tabDragGesture(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 3)
+            .onChanged { value in
+                let reservedWidth: CGFloat = 72
+                let availableWidth = max(width - reservedWidth - 8, 1)
+                let relativeX = min(max(value.location.x - reservedWidth, 0), availableWidth - 1)
+                let index = min(Int(relativeX / (availableWidth / CGFloat(SettingsTab.allCases.count))), SettingsTab.allCases.count - 1)
+                selectTab(SettingsTab.allCases[index])
+            }
     }
 
     @ViewBuilder

@@ -6,11 +6,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
 BUILD_DIR=".build/release"
-APP_DIR="dist/${APP_NAME}.app"
+DIST_DIR="dist"
+DIST_APP_DIR="${DIST_DIR}/${APP_NAME}.app"
+WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/session-pinger-build.XXXXXX")"
+APP_DIR="${WORK_DIR}/${APP_NAME}.app"
+trap 'rm -rf "${WORK_DIR}"' EXIT
 
 swift build -c release
 
-rm -rf dist
+rm -rf "${DIST_DIR}"
 mkdir -p "${APP_DIR}/Contents/MacOS"
 mkdir -p "${APP_DIR}/Contents/Resources"
 
@@ -40,11 +44,29 @@ else
     codesign --force --deep --sign - "${APP_DIR}"
 fi
 
-# Some Finder/Launch Services paths can attach FinderInfo while the bundle is
-# being assembled. Remove any post-signing metadata, then fail the build if
-# the finished bundle does not satisfy strict signature validation.
-xattr -cr "${APP_DIR}"
 codesign --verify --deep --strict --verbose=2 "${APP_DIR}"
 
-echo "Built: ${APP_DIR}"
+# Assemble and sign outside Documents so Finder cannot race codesign by
+# attaching com.apple.FinderInfo midway through signing. Copy the finished
+# bundle back without resource forks or extended attributes, then verify the
+# exact artifact the user will launch.
+mkdir -p "${DIST_DIR}"
+COPYFILE_DISABLE=1 ditto --norsrc --noextattr --noqtn "${APP_DIR}" "${DIST_APP_DIR}"
+
+verified=false
+for attempt in 1 2 3; do
+    xattr -cr "${DIST_APP_DIR}"
+    find "${DIST_APP_DIR}" -name "._*" -delete
+    if codesign --verify --deep --strict --verbose=2 "${DIST_APP_DIR}"; then
+        verified=true
+        break
+    fi
+    sleep 0.2
+done
+if [[ "${verified}" != true ]]; then
+    echo "ERROR: the copied app failed strict signature verification." >&2
+    exit 1
+fi
+
+echo "Built: ${DIST_APP_DIR}"
 echo "Move it into /Applications, then double-click to launch."

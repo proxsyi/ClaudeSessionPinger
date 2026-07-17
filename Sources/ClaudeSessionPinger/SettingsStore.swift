@@ -1,5 +1,9 @@
 import Foundation
 
+extension Notification.Name {
+    static let commandUShortcutSettingChanged = Notification.Name("commandUShortcutSettingChanged")
+}
+
 final class SettingsStore: ObservableObject {
     /// Usage-alert percentages the user can pick from in Settings.
     static let availableThresholds = [25, 50, 75, 90, 95, 100]
@@ -72,7 +76,10 @@ final class SettingsStore: ObservableObject {
         didSet { UserDefaults.standard.set(autoStartAvailableSessions, forKey: Keys.autoStartAvailableSessions) }
     }
     @Published var enableCommandUShortcut: Bool {
-        didSet { UserDefaults.standard.set(enableCommandUShortcut, forKey: Keys.enableCommandUShortcut) }
+        didSet {
+            UserDefaults.standard.set(enableCommandUShortcut, forKey: Keys.enableCommandUShortcut)
+            NotificationCenter.default.post(name: .commandUShortcutSettingChanged, object: nil)
+        }
     }
     @Published var preferClearGlass: Bool {
         didSet { UserDefaults.standard.set(preferClearGlass, forKey: Keys.preferClearGlass) }
