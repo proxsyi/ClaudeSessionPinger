@@ -40,5 +40,11 @@ else
     codesign --force --deep --sign - "${APP_DIR}"
 fi
 
+# Some Finder/Launch Services paths can attach FinderInfo while the bundle is
+# being assembled. Remove any post-signing metadata, then fail the build if
+# the finished bundle does not satisfy strict signature validation.
+xattr -cr "${APP_DIR}"
+codesign --verify --deep --strict --verbose=2 "${APP_DIR}"
+
 echo "Built: ${APP_DIR}"
 echo "Move it into /Applications, then double-click to launch."

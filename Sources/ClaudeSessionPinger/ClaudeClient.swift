@@ -6,6 +6,7 @@ enum ClaudeClient {
         organizationID: String,
         model: String,
         message: String,
+        conversationID: String? = nil,
         cookieHeader: String? = nil,
         timeoutSeconds: TimeInterval = 30
     ) async throws -> PingOutcome {
@@ -19,17 +20,73 @@ enum ClaudeClient {
             throw PingError.invalidURL
         }
 
+        let storedConversationID = conversationID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !storedConversationID.isEmpty {
+            do {
+                return try await sendCompletion(
+                    conversationID: storedConversationID,
+                    baseURL: baseURL,
+                    sessionKey: trimmedKey,
+                    model: trimmedModel,
+                    message: message,
+                    cookieHeader: cookieHeader,
+                    timeoutSeconds: timeoutSeconds
+                )
+            } catch let error as PingError {
+                if case .serverError(let code, _) = error, code == 404 {
+                    // The dedicated chat was deleted or expired. Replace it
+                    // once and continue instead of failing the scheduled ping.
+                } else {
+                    throw error
+                }
+            }
+        }
+
+        let newConversationID = try await createConversation(
+            baseURL: baseURL,
+            sessionKey: trimmedKey,
+            cookieHeader: cookieHeader,
+            timeoutSeconds: timeoutSeconds
+        )
+        return try await sendCompletion(
+            conversationID: newConversationID,
+            baseURL: baseURL,
+            sessionKey: trimmedKey,
+            model: trimmedModel,
+            message: message,
+            cookieHeader: cookieHeader,
+            timeoutSeconds: timeoutSeconds
+        )
+    }
+
+    private static func createConversation(
+        baseURL: URL,
+        sessionKey: String,
+        cookieHeader: String?,
+        timeoutSeconds: TimeInterval
+    ) async throws -> String {
         let conversationID = UUID().uuidString.lowercased()
         let createURL = baseURL.appendingPathComponent("chat_conversations")
         var createRequest = URLRequest(url: createURL)
         createRequest.httpMethod = "POST"
         createRequest.timeoutInterval = timeoutSeconds
-        applyCommonHeaders(&createRequest, sessionKey: trimmedKey, cookieHeader: cookieHeader)
-        createRequest.httpBody = try JSONSerialization.data(withJSONObject: ["uuid": conversationID, "name": ""])
+        applyCommonHeaders(&createRequest, sessionKey: sessionKey, cookieHeader: cookieHeader)
+        createRequest.httpBody = try JSONSerialization.data(withJSONObject: ["uuid": conversationID, "name": "Session Pinger"])
 
         let (createData, createResponse) = try await perform(createRequest)
         try validate(response: createResponse, data: createData)
+        return conversationID
+    }
 
+    private static func sendCompletion(
+        conversationID: String,
+        baseURL: URL,
+        sessionKey: String,
+        model: String,
+        message: String,
+        cookieHeader: String?,
+        timeoutSeconds: TimeInterval
+    ) async throws -> PingOutcome {
         let completionURL = baseURL
             .appendingPathComponent("chat_conversations")
             .appendingPathComponent(conversationID)
@@ -37,14 +94,14 @@ enum ClaudeClient {
         var completionRequest = URLRequest(url: completionURL)
         completionRequest.httpMethod = "POST"
         completionRequest.timeoutInterval = timeoutSeconds
-        applyCommonHeaders(&completionRequest, sessionKey: trimmedKey, cookieHeader: cookieHeader)
+        applyCommonHeaders(&completionRequest, sessionKey: sessionKey, cookieHeader: cookieHeader)
         let payload: [String: Any] = [
             "prompt": message,
             "timezone": TimeZone.current.identifier,
             "attachments": [],
             "files": [],
             "rendering_mode": "messages",
-            "model": trimmedModel
+            "model": model
         ]
         completionRequest.httpBody = try JSONSerialization.data(withJSONObject: payload)
 

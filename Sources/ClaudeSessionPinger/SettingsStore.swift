@@ -17,6 +17,10 @@ final class SettingsStore: ObservableObject {
         static let organizationID = "organizationID"
         static let model = "model"
         static let message = "message"
+        static let conversationID = "conversationID"
+        static let showSessionBar = "showSessionBar"
+        static let showWeeklyBar = "showWeeklyBar"
+        static let showFable5Bar = "showFable5Bar"
         static let scheduleSlots = "scheduleSlots"
         static let launchAtLogin = "launchAtLogin"
         static let notifyOnFailure = "notifyOnFailure"
@@ -26,9 +30,11 @@ final class SettingsStore: ObservableObject {
         static let weeklyUsageThresholds = "weeklyUsageThresholds"
         static let autoUpdateEnabled = "autoUpdateEnabled"
         static let keychainOwnershipMigrationVersion = "keychainOwnershipMigrationVersion"
+        static let proxsyiDefaultsMigrated = "proxsyiDefaultsMigrated"
     }
 
     private static let currentKeychainOwnershipMigrationVersion = 2
+    private static let legacyBundleIdentifier = "com.cash.claudesessionpinger"
 
     @Published var organizationID: String {
         didSet { UserDefaults.standard.set(organizationID, forKey: Keys.organizationID) }
@@ -38,6 +44,18 @@ final class SettingsStore: ObservableObject {
     }
     @Published var message: String {
         didSet { UserDefaults.standard.set(message, forKey: Keys.message) }
+    }
+    @Published var conversationID: String {
+        didSet { UserDefaults.standard.set(conversationID, forKey: Keys.conversationID) }
+    }
+    @Published var showSessionBar: Bool {
+        didSet { UserDefaults.standard.set(showSessionBar, forKey: Keys.showSessionBar) }
+    }
+    @Published var showWeeklyBar: Bool {
+        didSet { UserDefaults.standard.set(showWeeklyBar, forKey: Keys.showWeeklyBar) }
+    }
+    @Published var showFable5Bar: Bool {
+        didSet { UserDefaults.standard.set(showFable5Bar, forKey: Keys.showFable5Bar) }
     }
     @Published var scheduleSlots: [ScheduleSlot] {
         didSet {
@@ -102,10 +120,15 @@ final class SettingsStore: ObservableObject {
 
     init() {
         let defaults = UserDefaults.standard
+        Self.migrateLegacyDefaultsIfNeeded(into: defaults)
         organizationID = defaults.string(forKey: Keys.organizationID) ?? ""
         let storedModel = defaults.string(forKey: Keys.model) ?? ""
         model = storedModel.isEmpty ? "claude-haiku-4-5-20251001" : storedModel
         message = defaults.string(forKey: Keys.message) ?? "Say 1"
+        conversationID = defaults.string(forKey: Keys.conversationID) ?? ""
+        showSessionBar = defaults.object(forKey: Keys.showSessionBar) == nil ? true : defaults.bool(forKey: Keys.showSessionBar)
+        showWeeklyBar = defaults.object(forKey: Keys.showWeeklyBar) == nil ? true : defaults.bool(forKey: Keys.showWeeklyBar)
+        showFable5Bar = defaults.object(forKey: Keys.showFable5Bar) == nil ? false : defaults.bool(forKey: Keys.showFable5Bar)
         launchAtLogin = defaults.bool(forKey: Keys.launchAtLogin)
         notifyOnFailure = defaults.object(forKey: Keys.notifyOnFailure) == nil ? true : defaults.bool(forKey: Keys.notifyOnFailure)
         notifyOnServiceOutage = defaults.object(forKey: Keys.notifyOnServiceOutage) == nil ? true : defaults.bool(forKey: Keys.notifyOnServiceOutage)
@@ -145,6 +168,16 @@ final class SettingsStore: ObservableObject {
         } else {
             scheduleSlots = SettingsStore.defaultSlots
         }
+    }
+
+    private static func migrateLegacyDefaultsIfNeeded(into defaults: UserDefaults) {
+        guard !defaults.bool(forKey: Keys.proxsyiDefaultsMigrated) else { return }
+        if let legacyValues = defaults.persistentDomain(forName: legacyBundleIdentifier) {
+            for (key, value) in legacyValues where defaults.object(forKey: key) == nil {
+                defaults.set(value, forKey: key)
+            }
+        }
+        defaults.set(true, forKey: Keys.proxsyiDefaultsMigrated)
     }
 
     var isConfigured: Bool {

@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct SettingsView: View {
     @EnvironmentObject var settings: SettingsStore
@@ -16,6 +17,9 @@ struct SettingsView: View {
     @State private var notifyOnServiceDegraded = true
     @State private var sessionThresholds: Set<Int> = []
     @State private var weeklyThresholds: Set<Int> = []
+    @State private var showSessionBar = true
+    @State private var showWeeklyBar = true
+    @State private var showFable5Bar = false
     @State private var autoUpdate = true
     @State private var testResult: String?
     @State private var isTesting = false
@@ -54,6 +58,9 @@ struct SettingsView: View {
                         .padding(14)
                         .glassPanel()
                     activitySection
+                        .padding(14)
+                        .glassPanel()
+                    usageBarsSection
                         .padding(14)
                         .glassPanel()
                     notificationsSection
@@ -213,13 +220,13 @@ struct SettingsView: View {
                             get: { slots[index].hour },
                             set: { slots[index].hour = $0 }
                         ), in: 0...23) {
-                            HStack(spacing: 12) {
+                            HStack(spacing: 6) {
                                 Text(formattedTimeNumbers(hour: slots[index].hour, minute: slots[index].minute))
-                                    .frame(width: 48, alignment: .leading)
+                                    .frame(width: 40, alignment: .trailing)
                                 Text(timePeriod(hour: slots[index].hour))
-                                    .frame(width: 24, alignment: .leading)
+                                    .frame(width: 22, alignment: .leading)
                             }
-                            .font(.system(size: 12).monospacedDigit())
+                            .font(.system(size: 12, design: .monospaced))
                             .foregroundColor(ClaudeTheme.textPrimary)
                         }
                         Spacer()
@@ -297,11 +304,31 @@ struct SettingsView: View {
                 caption("Last successful model: \(activeModel)")
             }
 
+            caption(settings.conversationID.isEmpty
+                ? "The next ping will create one dedicated Claude chat and reuse it afterward."
+                : "Pings are reusing one dedicated Claude chat.")
+
             Button(appState.status == .sending ? "Sending\u{2026}" : "Ping now") {
                 appState.pingNow()
             }
             .claudePrimaryButton()
             .disabled(appState.status == .sending)
+
+            if !settings.conversationID.isEmpty {
+                HStack {
+                    Button("Open pinger chat") {
+                        if let url = URL(string: "https://claude.ai/chat/\(settings.conversationID)") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                    .claudeGhostButton()
+                    Spacer()
+                    Button("Start fresh chat") {
+                        settings.conversationID = ""
+                    }
+                    .claudeGhostButton()
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -309,6 +336,17 @@ struct SettingsView: View {
     private var successRateText: String {
         guard stats.totalCount > 0 else { return "No pings yet" }
         return "\(stats.successCount)/\(stats.totalCount) (\(Int(stats.successRate * 100))%)"
+    }
+
+    private var usageBarsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(text: "Usage bars")
+            toggleRow("Session (5 hour)", isOn: $showSessionBar)
+            toggleRow("Weekly (7 day)", isOn: $showWeeklyBar)
+            toggleRow("Fable 5 weekly", isOn: $showFable5Bar)
+            caption("Choose which usage windows appear in the menu bar popover.")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var notificationsSection: some View {
@@ -500,6 +538,9 @@ struct SettingsView: View {
         notifyOnServiceDegraded = settings.notifyOnServiceDegraded
         sessionThresholds = Set(settings.sessionUsageThresholds)
         weeklyThresholds = Set(settings.weeklyUsageThresholds)
+        showSessionBar = settings.showSessionBar
+        showWeeklyBar = settings.showWeeklyBar
+        showFable5Bar = settings.showFable5Bar
         autoUpdate = settings.autoUpdateEnabled
         sessionKeyInput = ""
         testResult = nil
@@ -522,6 +563,9 @@ struct SettingsView: View {
         settings.notifyOnServiceDegraded = notifyOnServiceDegraded
         settings.sessionUsageThresholds = sessionThresholds.sorted()
         settings.weeklyUsageThresholds = weeklyThresholds.sorted()
+        settings.showSessionBar = showSessionBar
+        settings.showWeeklyBar = showWeeklyBar
+        settings.showFable5Bar = showFable5Bar
         settings.autoUpdateEnabled = autoUpdate
         LoginItemManager.setEnabled(launchAtLogin)
         appState.rescheduleTimer()
@@ -547,9 +591,11 @@ struct SettingsView: View {
                     organizationID: orgToTest,
                     model: modelToTest,
                     message: messageToTest,
+                    conversationID: settings.conversationID,
                     cookieHeader: cookieHeaderToTest
                 )
                 await MainActor.run {
+                    settings.conversationID = outcome.conversationID
                     testResult = outcome.matchedExpected ? "Success: got expected reply" : "Connected, but reply was: \(outcome.replyText)"
                     isTesting = false
                 }

@@ -108,8 +108,10 @@ final class AppState: ObservableObject {
                     organizationID: settings.organizationID,
                     model: modelToUse,
                     message: settings.message,
+                    conversationID: settings.conversationID,
                     cookieHeader: settings.effectiveCookieHeader
                 )
+                settings.conversationID = outcome.conversationID
                 activeModel = modelToUse
                 lastPingDate = Date()
                 status = outcome.matchedExpected ? .success : .failure
@@ -453,14 +455,15 @@ final class AppState: ObservableObject {
                 case .denied:
                     self.notificationTestStatus = "Notifications are turned off for Session Pinger. Turn them on in System Settings > Notifications > Session Pinger, then test again."
                 case .notDetermined:
-                    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
-                        Task { @MainActor in
-                            if granted {
-                                self.deliverTestNotification()
-                            } else {
-                                self.notificationTestStatus = "Permission wasn't granted, so macOS won't show notifications."
-                            }
+                    do {
+                        let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+                        if granted {
+                            self.deliverTestNotification()
+                        } else {
+                            self.notificationTestStatus = "Permission wasn't granted, so macOS won't show notifications."
                         }
+                    } catch {
+                        self.notificationTestStatus = "macOS couldn't request notification permission: \(error.localizedDescription)"
                     }
                 default:
                     self.deliverTestNotification()
@@ -497,7 +500,9 @@ final class AppState: ObservableObject {
         guard runningInsideProperAppBundle else {
             return
         }
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        Task {
+            _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+        }
     }
 
     private func notifyFailureIfNeeded(message: String) {

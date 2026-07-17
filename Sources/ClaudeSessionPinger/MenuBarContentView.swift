@@ -101,16 +101,27 @@ struct MenuBarContentView: View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Claude usage")
 
-            usageRow(
-                title: "Session (5 hour)",
-                percent: appState.usage?.sessionPercent,
-                resetText: sessionResetText
-            )
-            usageRow(
-                title: "Weekly (7 day)",
-                percent: appState.usage?.weeklyPercent,
-                resetText: weeklyResetText
-            )
+            if settings.showSessionBar {
+                usageRow(
+                    title: "Session (5 hour)",
+                    percent: appState.usage?.sessionPercent,
+                    resetText: sessionResetText
+                )
+            }
+            if settings.showWeeklyBar {
+                usageRow(
+                    title: "Weekly (7 day)",
+                    percent: appState.usage?.weeklyPercent,
+                    resetText: weeklyResetText
+                )
+            }
+            if settings.showFable5Bar {
+                usageRow(
+                    title: "Fable 5 weekly",
+                    percent: appState.usage?.fable5Percent,
+                    resetText: fable5ResetText
+                )
+            }
 
             if let error = appState.usageError {
                 Text(error)
@@ -223,6 +234,13 @@ struct MenuBarContentView: View {
 
     private var weeklyResetText: String? {
         guard let date = appState.usage?.weeklyResetsAt else { return nil }
+        let day = date.formatted(.dateTime.day().month(.abbreviated).year())
+        let time = date.formatted(date: .omitted, time: .shortened)
+        return "Resets on \(day) at \(time)"
+    }
+
+    private var fable5ResetText: String? {
+        guard let date = appState.usage?.fable5ResetsAt else { return nil }
         let day = date.formatted(.dateTime.day().month(.abbreviated).year())
         let time = date.formatted(date: .omitted, time: .shortened)
         return "Resets on \(day) at \(time)"

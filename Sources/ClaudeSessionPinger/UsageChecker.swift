@@ -7,6 +7,8 @@ struct ClaudeUsage: Equatable {
     var sessionResetsAt: Date?
     var weeklyPercent: Int?
     var weeklyResetsAt: Date?
+    var fable5Percent: Int?
+    var fable5ResetsAt: Date?
     var fetchedAt: Date
 }
 
@@ -98,7 +100,14 @@ enum UsageChecker {
         }
         let session = usageWindow(in: object, keys: ["five_hour", "fiveHour", "session"])
         let weekly = usageWindow(in: object, keys: ["seven_day", "sevenDay", "seven_day_all_models", "weekly"])
-        guard session != nil || weekly != nil else {
+        let fable5 = usageWindow(
+            in: object,
+            keys: ["seven_day_fable_5", "seven_day_fable5", "fable_5", "fable5", "sevenDayFable5"]
+        ) ?? usageWindow(in: object) { key in
+            let normalized = key.lowercased().filter { $0.isLetter || $0.isNumber }
+            return normalized.contains("fable") && normalized.contains("5")
+        }
+        guard session != nil || weekly != nil || fable5 != nil else {
             throw UsageError.unexpectedResponse
         }
         return ClaudeUsage(
@@ -106,6 +115,8 @@ enum UsageChecker {
             sessionResetsAt: session?.resetsAt,
             weeklyPercent: weekly?.percent,
             weeklyResetsAt: weekly?.resetsAt,
+            fable5Percent: fable5?.percent,
+            fable5ResetsAt: fable5?.resetsAt,
             fetchedAt: Date()
         )
     }
@@ -243,18 +254,29 @@ enum UsageChecker {
 
     private static func usageWindow(in object: [String: Any], keys: [String]) -> UsageWindow? {
         for key in keys {
-            guard let dict = object[key] as? [String: Any] else { continue }
-            let percent = percentValue(dict["utilization"])
-                ?? percentValue(dict["percentage"])
-                ?? percentValue(dict["percent_used"])
-            let resets = dateValue(dict["resets_at"])
-                ?? dateValue(dict["reset_at"])
-                ?? dateValue(dict["resetsAt"])
-            if percent != nil || resets != nil {
-                return UsageWindow(percent: percent, resetsAt: resets)
-            }
+            guard let dict = object[key] as? [String: Any], let window = usageWindow(in: dict) else { continue }
+            return window
         }
         return nil
+    }
+
+    private static func usageWindow(in object: [String: Any], matchingKey: (String) -> Bool) -> UsageWindow? {
+        for (key, value) in object where matchingKey(key) {
+            guard let dict = value as? [String: Any], let window = usageWindow(in: dict) else { continue }
+            return window
+        }
+        return nil
+    }
+
+    private static func usageWindow(in dict: [String: Any]) -> UsageWindow? {
+        let percent = percentValue(dict["utilization"])
+            ?? percentValue(dict["percentage"])
+            ?? percentValue(dict["percent_used"])
+        let resets = dateValue(dict["resets_at"])
+            ?? dateValue(dict["reset_at"])
+            ?? dateValue(dict["resetsAt"])
+        guard percent != nil || resets != nil else { return nil }
+        return UsageWindow(percent: percent, resetsAt: resets)
     }
 
     /// claude.ai reports utilization as a 0-100 number; numeric strings are

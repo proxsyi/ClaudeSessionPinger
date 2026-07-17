@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.14.0
+
+- Added an optional Fable 5 weekly usage bar with tolerant parsing for undocumented usage-payload key variants.
+- Added Settings toggles for the session, weekly, and Fable 5 bars; session and weekly are visible by default.
+
+## v1.13.0
+
+- All scheduled, manual, and test pings now reuse one dedicated Claude chat instead of creating a new conversation every time.
+- Added Settings actions to open the dedicated pinger chat or intentionally start fresh; a deleted chat is replaced automatically on the next ping.
+- Updated notification authorization to the async macOS API, removing the Xcode 27 build warning.
+
 ## v1.12.0
 
 - The menu bar icon now turns crimson at 100% session usage and shows a live countdown until the session resets.
@@ -9,6 +20,8 @@
 - Aligned schedule times into fixed time and AM/PM columns.
 - The main countdown now follows the next usable session when the current window is maxed out, with the next scheduled ping shown underneath.
 - Re-runs the stable-signing keychain ownership repair once so legacy credentials stop asking for a password on later launches.
+- Changed the personal app identity to `com.proxsyi.claudesessionpinger` and migrates existing settings and credentials from the legacy identity.
+- Build output now removes post-signing Finder metadata and must pass strict signature verification before it is considered complete.
 
 ## v1.11.0
 
