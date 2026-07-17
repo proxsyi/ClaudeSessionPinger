@@ -4,6 +4,14 @@ extension Notification.Name {
     static let commandUShortcutSettingChanged = Notification.Name("commandUShortcutSettingChanged")
 }
 
+enum CountdownFocus: String, CaseIterable, Identifiable {
+    case nextPossible
+    case scheduled
+
+    var id: String { rawValue }
+    var label: String { self == .nextPossible ? "Next possible" : "Scheduled" }
+}
+
 final class SettingsStore: ObservableObject {
     /// Usage-alert percentages the user can pick from in Settings.
     static let availableThresholds = [25, 50, 75, 90, 95, 100]
@@ -30,6 +38,9 @@ final class SettingsStore: ObservableObject {
         static let autoStartAvailableSessions = "autoStartAvailableSessions"
         static let enableCommandUShortcut = "enableCommandUShortcut"
         static let preferClearGlass = "preferClearGlass"
+        static let showNextPossibleCountdown = "showNextPossibleCountdown"
+        static let showScheduledCountdown = "showScheduledCountdown"
+        static let countdownFocus = "countdownFocus"
         static let scheduleSlots = "scheduleSlots"
         static let launchAtLogin = "launchAtLogin"
         static let notifyOnFailure = "notifyOnFailure"
@@ -83,6 +94,15 @@ final class SettingsStore: ObservableObject {
     }
     @Published var preferClearGlass: Bool {
         didSet { UserDefaults.standard.set(preferClearGlass, forKey: Keys.preferClearGlass) }
+    }
+    @Published var showNextPossibleCountdown: Bool {
+        didSet { UserDefaults.standard.set(showNextPossibleCountdown, forKey: Keys.showNextPossibleCountdown) }
+    }
+    @Published var showScheduledCountdown: Bool {
+        didSet { UserDefaults.standard.set(showScheduledCountdown, forKey: Keys.showScheduledCountdown) }
+    }
+    @Published var countdownFocus: CountdownFocus {
+        didSet { UserDefaults.standard.set(countdownFocus.rawValue, forKey: Keys.countdownFocus) }
     }
     @Published var scheduleSlots: [ScheduleSlot] {
         didSet {
@@ -161,6 +181,9 @@ final class SettingsStore: ObservableObject {
         autoStartAvailableSessions = defaults.bool(forKey: Keys.autoStartAvailableSessions)
         enableCommandUShortcut = defaults.object(forKey: Keys.enableCommandUShortcut) == nil ? true : defaults.bool(forKey: Keys.enableCommandUShortcut)
         preferClearGlass = defaults.object(forKey: Keys.preferClearGlass) == nil ? true : defaults.bool(forKey: Keys.preferClearGlass)
+        showNextPossibleCountdown = defaults.object(forKey: Keys.showNextPossibleCountdown) == nil ? true : defaults.bool(forKey: Keys.showNextPossibleCountdown)
+        showScheduledCountdown = defaults.object(forKey: Keys.showScheduledCountdown) == nil ? true : defaults.bool(forKey: Keys.showScheduledCountdown)
+        countdownFocus = CountdownFocus(rawValue: defaults.string(forKey: Keys.countdownFocus) ?? "") ?? .nextPossible
         launchAtLogin = defaults.bool(forKey: Keys.launchAtLogin)
         notifyOnFailure = defaults.object(forKey: Keys.notifyOnFailure) == nil ? true : defaults.bool(forKey: Keys.notifyOnFailure)
         notifyOnServiceOutage = defaults.object(forKey: Keys.notifyOnServiceOutage) == nil ? true : defaults.bool(forKey: Keys.notifyOnServiceOutage)

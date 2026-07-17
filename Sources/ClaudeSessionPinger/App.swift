@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuHotKeyRef: EventHotKeyRef?
     private var menuHotKeyHandlerRef: EventHandlerRef?
     private var menuShortcutSettingObserver: NSObjectProtocol?
+    private var lastMenuHotKeyToggle = Date.distantPast
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -117,7 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                   hotKeyID.id == menuHotKeyIdentifier else { return noErr }
             let appDelegate = Unmanaged<AppDelegate>.fromOpaque(userData).takeUnretainedValue()
             Task { @MainActor in
-                appDelegate.appState.requestTogglePopover?()
+                appDelegate.handleMenuHotKeyPress()
             }
             return noErr
         }
@@ -155,6 +156,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             RemoveEventHandler(menuHotKeyHandlerRef)
             self.menuHotKeyHandlerRef = nil
         }
+    }
+
+    /// Carbon can emit repeated hot-key events while the keys are held. A
+    /// short debounce makes a quick press perform exactly one open/close.
+    private func handleMenuHotKeyPress() {
+        let now = Date()
+        guard now.timeIntervalSince(lastMenuHotKeyToggle) >= 0.45 else { return }
+        lastMenuHotKeyToggle = now
+        appState.requestTogglePopover?()
     }
 }
 

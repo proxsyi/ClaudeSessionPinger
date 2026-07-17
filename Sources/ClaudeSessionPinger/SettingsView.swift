@@ -38,6 +38,9 @@ struct SettingsView: View {
     @State private var showSessionBar = true
     @State private var showWeeklyBar = true
     @State private var showFable5Bar = false
+    @State private var showNextPossibleCountdown = true
+    @State private var showScheduledCountdown = true
+    @State private var countdownFocus: CountdownFocus = .nextPossible
     @State private var notifySessionAvailable = true
     @State private var notifySessionStarted = true
     @State private var autoStartAvailableSessions = false
@@ -80,7 +83,15 @@ struct SettingsView: View {
         }
         .frame(width: 460, height: 600)
         .background(WindowGlassBackground(clearGlass: settings.preferClearGlass).ignoresSafeArea())
-        .onAppear(perform: loadCurrentValues)
+        .onAppear {
+            loadCurrentValues()
+            appState.requestSaveAndCloseSettings = {
+                save(showPopoverAfterClose: true)
+            }
+        }
+        .onDisappear {
+            appState.requestSaveAndCloseSettings = nil
+        }
         .sheet(isPresented: $showingLogin) {
             CookieLoginSheet { sessionKey, organizationIDFromCookie, cookieHeader in
                 handleLoginCapture(
@@ -98,9 +109,6 @@ struct SettingsView: View {
             if #available(macOS 26.0, *) {
                 GlassEffectContainer(spacing: 6) {
                     HStack(spacing: 4) {
-                        Color.clear
-                            .frame(width: 64)
-                            .accessibilityHidden(true)
                         ForEach(SettingsTab.allCases) { tab in
                             Button {
                                 selectTab(tab)
@@ -155,9 +163,9 @@ struct SettingsView: View {
     private func tabDragGesture(width: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 3)
             .onChanged { value in
-                let reservedWidth: CGFloat = 72
-                let availableWidth = max(width - reservedWidth - 8, 1)
-                let relativeX = min(max(value.location.x - reservedWidth, 0), availableWidth - 1)
+                let inset: CGFloat = 4
+                let availableWidth = max(width - (inset * 2), 1)
+                let relativeX = min(max(value.location.x - inset, 0), availableWidth - 1)
                 let index = min(Int(relativeX / (availableWidth / CGFloat(SettingsTab.allCases.count))), SettingsTab.allCases.count - 1)
                 selectTab(SettingsTab.allCases[index])
             }
@@ -425,6 +433,19 @@ struct SettingsView: View {
             toggleRow("Fable 5 weekly", isOn: $showFable5Bar)
             caption("Choose which usage windows appear in the menu bar popover.")
             Divider()
+            SectionHeader(text: "Countdown card")
+            toggleRow("Next possible session", isOn: $showNextPossibleCountdown)
+            toggleRow("Scheduled session", isOn: $showScheduledCountdown)
+            if showNextPossibleCountdown && showScheduledCountdown {
+                Picker("Main focus", selection: $countdownFocus) {
+                    ForEach(CountdownFocus.allCases) { focus in
+                        Text(focus.label).tag(focus)
+                    }
+                }
+                .pickerStyle(.segmented)
+                caption("The other enabled countdown appears underneath in gray.")
+            }
+            Divider()
             toggleRow("Start sessions when available", isOn: $autoStartAvailableSessions)
             caption("Off by default. When enabled, Session Pinger starts a newly available session even if it falls outside your schedule.")
         }
@@ -628,6 +649,9 @@ struct SettingsView: View {
         showSessionBar = settings.showSessionBar
         showWeeklyBar = settings.showWeeklyBar
         showFable5Bar = settings.showFable5Bar
+        showNextPossibleCountdown = settings.showNextPossibleCountdown
+        showScheduledCountdown = settings.showScheduledCountdown
+        countdownFocus = settings.countdownFocus
         notifySessionAvailable = settings.notifySessionAvailable
         notifySessionStarted = settings.notifySessionStarted
         autoStartAvailableSessions = settings.autoStartAvailableSessions
@@ -638,7 +662,7 @@ struct SettingsView: View {
         testResult = nil
     }
 
-    private func save() {
+    private func save(showPopoverAfterClose: Bool = false) {
         let trimmedSessionKeyInput = sessionKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedSessionKeyInput.isEmpty {
             settings.sessionKey = trimmedSessionKeyInput
@@ -658,6 +682,9 @@ struct SettingsView: View {
         settings.showSessionBar = showSessionBar
         settings.showWeeklyBar = showWeeklyBar
         settings.showFable5Bar = showFable5Bar
+        settings.showNextPossibleCountdown = showNextPossibleCountdown
+        settings.showScheduledCountdown = showScheduledCountdown
+        settings.countdownFocus = countdownFocus
         settings.notifySessionAvailable = notifySessionAvailable
         settings.notifySessionStarted = notifySessionStarted
         settings.autoStartAvailableSessions = autoStartAvailableSessions
@@ -667,6 +694,11 @@ struct SettingsView: View {
         LoginItemManager.setEnabled(launchAtLogin)
         appState.rescheduleTimer()
         appState.closeSettingsWindow?()
+        if showPopoverAfterClose {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                appState.requestTogglePopover?()
+            }
+        }
     }
 
     private func runTest() {

@@ -197,6 +197,13 @@ struct MenuBarContentView: View {
                 .foregroundColor(ClaudeTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if let url = URL(string: "https://status.claude.com") {
+                NSWorkspace.shared.open(url)
+            }
+        }
+        .help("Open Claude Status")
     }
 
     private var serviceStatusColor: Color {
@@ -255,12 +262,12 @@ struct MenuBarContentView: View {
     private var countdownSection: some View {
         HStack(alignment: .top, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
-                SectionHeader(text: "Next possible session in")
-                Text(nextPossibleSessionCountdown)
+                SectionHeader(text: primaryCountdownTitle)
+                Text(primaryCountdownText)
                     .font(.system(size: 28, weight: .semibold, design: .rounded).monospacedDigit())
                     .foregroundColor(ClaudeTheme.textPrimary)
-                if let scheduledText = scheduledSessionText {
-                    Text(scheduledText)
+                if let secondaryText = secondaryCountdownText {
+                    Text(secondaryText)
                         .font(.system(size: 10))
                         .foregroundColor(ClaudeTheme.textSecondary.opacity(0.8))
                 }
@@ -276,24 +283,52 @@ struct MenuBarContentView: View {
     }
 
     private var nextPossibleSessionDate: Date? {
-        if let percent = appState.usage?.sessionPercent,
-           percent >= 100,
-           let reset = appState.usage?.sessionResetsAt,
+        if let reset = appState.usage?.sessionResetsAt,
            reset > now {
             return reset
         }
-        return appState.nextFireDate
+        return nil
     }
 
-    private var nextPossibleSessionCountdown: String {
-        guard let next = nextPossibleSessionDate else { return "Not scheduled" }
-        return durationText(until: next)
+    private var effectiveCountdownFocus: CountdownFocus {
+        if settings.showNextPossibleCountdown && settings.showScheduledCountdown {
+            return settings.countdownFocus
+        }
+        return settings.showScheduledCountdown ? .scheduled : .nextPossible
     }
 
-    private var scheduledSessionText: String? {
-        guard let next = appState.nextFireDate else { return nil }
-        let time = next.formatted(date: .omitted, time: .shortened)
-        return "Scheduled ping in \(durationText(until: next)) · \(time)"
+    private var primaryCountdownTitle: String {
+        guard settings.showNextPossibleCountdown || settings.showScheduledCountdown else {
+            return "Session countdowns"
+        }
+        return effectiveCountdownFocus == .nextPossible
+            ? "Next possible session in"
+            : "Next scheduled session in"
+    }
+
+    private var primaryCountdownText: String {
+        guard settings.showNextPossibleCountdown || settings.showScheduledCountdown else { return "Hidden" }
+        let date = effectiveCountdownFocus == .nextPossible
+            ? nextPossibleSessionDate
+            : appState.nextFireDate
+        guard let date else { return "Unavailable" }
+        return durationText(until: date)
+    }
+
+    private var secondaryCountdownText: String? {
+        if effectiveCountdownFocus == .nextPossible,
+           settings.showScheduledCountdown,
+           let scheduled = appState.nextFireDate {
+            let time = scheduled.formatted(date: .omitted, time: .shortened)
+            return "Scheduled session in \(durationText(until: scheduled)) · \(time)"
+        }
+        if effectiveCountdownFocus == .scheduled,
+           settings.showNextPossibleCountdown,
+           let possible = nextPossibleSessionDate {
+            let time = possible.formatted(date: .omitted, time: .shortened)
+            return "Next possible session in \(durationText(until: possible)) · \(time)"
+        }
+        return nil
     }
 
     private func durationText(until date: Date) -> String {

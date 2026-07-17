@@ -30,6 +30,7 @@ final class AppState: ObservableObject {
     var requestShowSettings: (() -> Void)?
     var closeSettingsWindow: (() -> Void)?
     var toggleSettingsWindow: (() -> Void)?
+    var requestSaveAndCloseSettings: (() -> Void)?
     private let scheduler = Scheduler()
     private var isPinging = false
     private var lastPingDate: Date?

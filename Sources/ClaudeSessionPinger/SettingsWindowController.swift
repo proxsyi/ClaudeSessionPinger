@@ -31,8 +31,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     /// Opens Settings if it's closed, or closes it if it's already open.
     /// Used by the Cmd+, keyboard shortcut.
     func toggle() {
-        if let window {
-            window.close()
+        if window != nil {
+            if let saveAndClose = appState.requestSaveAndCloseSettings {
+                saveAndClose()
+            } else {
+                window?.close()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+                    self?.appState.requestTogglePopover?()
+                }
+            }
         } else {
             appState.requestClosePopover?()
             show()
