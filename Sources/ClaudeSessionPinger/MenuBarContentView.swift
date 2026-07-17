@@ -252,16 +252,24 @@ struct MenuBarContentView: View {
     }
 
     private var countdownSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            SectionHeader(text: "Next possible session in")
-            Text(nextPossibleSessionCountdown)
-                .font(.system(size: 28, weight: .semibold, design: .rounded).monospacedDigit())
-                .foregroundColor(ClaudeTheme.textPrimary)
-            if let scheduledText = scheduledSessionText {
-                Text(scheduledText)
-                    .font(.system(size: 10))
-                    .foregroundColor(ClaudeTheme.textSecondary.opacity(0.8))
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                SectionHeader(text: "Next possible session in")
+                Text(nextPossibleSessionCountdown)
+                    .font(.system(size: 28, weight: .semibold, design: .rounded).monospacedDigit())
+                    .foregroundColor(ClaudeTheme.textPrimary)
+                if let scheduledText = scheduledSessionText {
+                    Text(scheduledText)
+                        .font(.system(size: 10))
+                        .foregroundColor(ClaudeTheme.textSecondary.opacity(0.8))
+                }
             }
+            Spacer(minLength: 4)
+            Button(appState.status == .sending ? "Sending\u{2026}" : "Ping now") {
+                appState.pingNow()
+            }
+            .claudeGhostButton()
+            .disabled(appState.status == .sending)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

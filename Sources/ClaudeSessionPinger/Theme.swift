@@ -17,15 +17,15 @@ enum ClaudeTheme {
 struct GlassPanel: ViewModifier {
     var cornerRadius: CGFloat = ClaudeTheme.cardCornerRadius
     var tint: Color = .clear
+    @AppStorage("preferClearGlass") private var preferClearGlass = true
 
     @ViewBuilder
     func body(content: Content) -> some View {
         if #available(macOS 26.0, *) {
+            let glass = preferClearGlass ? Glass.clear : Glass.regular
             content
                 .glassEffect(
-                    // The .clear glass variant: transparent "liquid" glass
-                    // rather than the frosted .regular material.
-                    tint == .clear ? .clear : .clear.tint(tint.opacity(0.35)),
+                    tint == .clear ? glass : glass.tint(tint),
                     in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 )
         } else {
@@ -193,15 +193,17 @@ struct UsageBar: View {
 /// material and accessibility settings (so "Reduce transparency" is
 /// respected automatically). Used as the root background of whole windows.
 struct WindowGlassBackground: NSViewRepresentable {
+    let clearGlass: Bool
+
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
-        // .hudWindow is the most transparent of the standard materials --
-        // clear glass rather than heavy frost.
-        view.material = .hudWindow
+        view.material = clearGlass ? .hudWindow : .popover
         view.blendingMode = .behindWindow
-        view.state = .active
+        view.state = .followsWindowActiveState
         return view
     }
 
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = clearGlass ? .hudWindow : .popover
+    }
 }

@@ -38,6 +38,9 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         appState.requestClosePopover = { [weak self] in
             self?.closePopover()
         }
+        appState.requestTogglePopover = { [weak self] in
+            self?.togglePopover(nil)
+        }
 
         appState.$usage
             .receive(on: DispatchQueue.main)

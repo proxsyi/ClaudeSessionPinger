@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.15.0
+
+- Reorganized Settings into General, Usage, Alerts, and App tabs, moved the title beside the traffic lights, and shortened the window.
+- Added Ping now to the next-session card and Command-U to toggle the menu bar popover.
+- Added configurable notifications for newly available and app-started sessions, plus an off-by-default option to start newly available sessions outside the schedule.
+- Switched custom surfaces to adaptive system Liquid Glass with a user-selectable clear appearance that follows macOS accessibility and appearance settings.
+
 ## v1.14.0
 
 - Added an optional Fable 5 weekly usage bar with tolerant parsing for undocumented usage-payload key variants.

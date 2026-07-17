@@ -26,6 +26,7 @@ final class AppState: ObservableObject {
     let settings: SettingsStore
     let stats: StatsStore
     var requestClosePopover: (() -> Void)?
+    var requestTogglePopover: (() -> Void)?
     var requestShowSettings: (() -> Void)?
     var closeSettingsWindow: (() -> Void)?
     var toggleSettingsWindow: (() -> Void)?
@@ -117,6 +118,15 @@ final class AppState: ObservableObject {
                 status = outcome.matchedExpected ? .success : .failure
                 let summary = outcome.matchedExpected ? "Got expected reply" : "Unexpected reply: \(outcome.replyText)"
                 stats.addRecord(success: outcome.matchedExpected, summary: summary)
+                if outcome.matchedExpected && settings.notifySessionStarted {
+                    sendNotification(
+                        identifier: "session-started",
+                        title: "New Claude session started",
+                        body: manual
+                            ? "Your manual ping started a new session."
+                            : "Session Pinger started a new session."
+                    )
+                }
                 if !outcome.matchedExpected {
                     lastError = "Claude responded, but not with the expected text."
                     notifyFailureIfNeeded(message: lastError ?? "")
@@ -244,6 +254,7 @@ final class AppState: ObservableObject {
         isRefreshingUsage = true
         async let statusCheck = UsageChecker.fetchServiceStatus()
         do {
+            let previousUsage = usage
             let fetched = try await UsageChecker.fetchUsage(
                 sessionKey: settings.sessionKey,
                 organizationID: settings.organizationID,
@@ -252,6 +263,7 @@ final class AppState: ObservableObject {
             usage = fetched
             usageError = nil
             notifyUsageThresholdsIfNeeded(for: fetched)
+            handleSessionAvailability(previous: previousUsage, current: fetched)
         } catch {
             usageError = (error as? UsageError)?.localizedDescription ?? error.localizedDescription
         }
@@ -271,6 +283,35 @@ final class AppState: ObservableObject {
     }
 
     // MARK: - Usage threshold & service status notifications
+
+    private var sessionAvailabilityBaselined = false
+
+    private func handleSessionAvailability(previous: ClaudeUsage?, current: ClaudeUsage) {
+        defer { sessionAvailabilityBaselined = true }
+        guard sessionAvailabilityBaselined, let previous else { return }
+
+        let becameAvailable = (previous.sessionPercent ?? 0) >= 100 && (current.sessionPercent ?? 100) < 100
+        let resetRolledForward: Bool
+        if let oldReset = previous.sessionResetsAt, let newReset = current.sessionResetsAt {
+            resetRolledForward = oldReset <= Date() && newReset.timeIntervalSince(oldReset) > resetJitterTolerance
+        } else {
+            resetRolledForward = false
+        }
+        guard becameAvailable || resetRolledForward else { return }
+
+        if settings.notifySessionAvailable {
+            sendNotification(
+                identifier: "session-available",
+                title: "A new Claude session is available",
+                body: "Your previous 5-hour window reset."
+            )
+        }
+
+        guard settings.autoStartAvailableSessions, !isPinging else { return }
+        let scheduledSoon = nextFireDate.map { abs($0.timeIntervalSinceNow) <= 10 * 60 } ?? false
+        guard !scheduledSoon else { return }
+        Task { await runPing(manual: false) }
+    }
 
     /// Thresholds already notified for the current session window.
     private var notifiedSessionThresholds: Set<Int> = []

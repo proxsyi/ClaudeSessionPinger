@@ -21,6 +21,11 @@ final class SettingsStore: ObservableObject {
         static let showSessionBar = "showSessionBar"
         static let showWeeklyBar = "showWeeklyBar"
         static let showFable5Bar = "showFable5Bar"
+        static let notifySessionAvailable = "notifySessionAvailable"
+        static let notifySessionStarted = "notifySessionStarted"
+        static let autoStartAvailableSessions = "autoStartAvailableSessions"
+        static let enableCommandUShortcut = "enableCommandUShortcut"
+        static let preferClearGlass = "preferClearGlass"
         static let scheduleSlots = "scheduleSlots"
         static let launchAtLogin = "launchAtLogin"
         static let notifyOnFailure = "notifyOnFailure"
@@ -56,6 +61,21 @@ final class SettingsStore: ObservableObject {
     }
     @Published var showFable5Bar: Bool {
         didSet { UserDefaults.standard.set(showFable5Bar, forKey: Keys.showFable5Bar) }
+    }
+    @Published var notifySessionAvailable: Bool {
+        didSet { UserDefaults.standard.set(notifySessionAvailable, forKey: Keys.notifySessionAvailable) }
+    }
+    @Published var notifySessionStarted: Bool {
+        didSet { UserDefaults.standard.set(notifySessionStarted, forKey: Keys.notifySessionStarted) }
+    }
+    @Published var autoStartAvailableSessions: Bool {
+        didSet { UserDefaults.standard.set(autoStartAvailableSessions, forKey: Keys.autoStartAvailableSessions) }
+    }
+    @Published var enableCommandUShortcut: Bool {
+        didSet { UserDefaults.standard.set(enableCommandUShortcut, forKey: Keys.enableCommandUShortcut) }
+    }
+    @Published var preferClearGlass: Bool {
+        didSet { UserDefaults.standard.set(preferClearGlass, forKey: Keys.preferClearGlass) }
     }
     @Published var scheduleSlots: [ScheduleSlot] {
         didSet {
@@ -129,6 +149,11 @@ final class SettingsStore: ObservableObject {
         showSessionBar = defaults.object(forKey: Keys.showSessionBar) == nil ? true : defaults.bool(forKey: Keys.showSessionBar)
         showWeeklyBar = defaults.object(forKey: Keys.showWeeklyBar) == nil ? true : defaults.bool(forKey: Keys.showWeeklyBar)
         showFable5Bar = defaults.object(forKey: Keys.showFable5Bar) == nil ? false : defaults.bool(forKey: Keys.showFable5Bar)
+        notifySessionAvailable = defaults.object(forKey: Keys.notifySessionAvailable) == nil ? true : defaults.bool(forKey: Keys.notifySessionAvailable)
+        notifySessionStarted = defaults.object(forKey: Keys.notifySessionStarted) == nil ? true : defaults.bool(forKey: Keys.notifySessionStarted)
+        autoStartAvailableSessions = defaults.bool(forKey: Keys.autoStartAvailableSessions)
+        enableCommandUShortcut = defaults.object(forKey: Keys.enableCommandUShortcut) == nil ? true : defaults.bool(forKey: Keys.enableCommandUShortcut)
+        preferClearGlass = defaults.object(forKey: Keys.preferClearGlass) == nil ? true : defaults.bool(forKey: Keys.preferClearGlass)
         launchAtLogin = defaults.bool(forKey: Keys.launchAtLogin)
         notifyOnFailure = defaults.object(forKey: Keys.notifyOnFailure) == nil ? true : defaults.bool(forKey: Keys.notifyOnFailure)
         notifyOnServiceOutage = defaults.object(forKey: Keys.notifyOnServiceOutage) == nil ? true : defaults.bool(forKey: Keys.notifyOnServiceOutage)

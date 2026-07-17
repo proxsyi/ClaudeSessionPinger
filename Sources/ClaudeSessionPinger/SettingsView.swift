@@ -1,6 +1,15 @@
 import SwiftUI
 import AppKit
 
+private enum SettingsTab: String, CaseIterable, Identifiable {
+    case general = "General"
+    case usage = "Usage"
+    case alerts = "Alerts"
+    case app = "App"
+
+    var id: String { rawValue }
+}
+
 struct SettingsView: View {
     @EnvironmentObject var settings: SettingsStore
     @EnvironmentObject var appState: AppState
@@ -20,6 +29,12 @@ struct SettingsView: View {
     @State private var showSessionBar = true
     @State private var showWeeklyBar = true
     @State private var showFable5Bar = false
+    @State private var notifySessionAvailable = true
+    @State private var notifySessionStarted = true
+    @State private var autoStartAvailableSessions = false
+    @State private var enableCommandUShortcut = true
+    @State private var preferClearGlass = true
+    @State private var selectedTab: SettingsTab = .general
     @State private var autoUpdate = true
     @State private var testResult: String?
     @State private var isTesting = false
@@ -30,50 +45,30 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
+                Spacer()
                 Text("Settings")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(ClaudeTheme.textPrimary)
-                Spacer()
             }
+            .padding(.leading, 84)
+            .padding(.trailing, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 6)
+
+            Picker("Settings section", selection: $selectedTab) {
+                ForEach(SettingsTab.allCases) { tab in
+                    Text(tab.rawValue).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
             .padding(.horizontal, 20)
-            // Content extends under the title bar (fullSizeContentView), so
-            // push the header below the traffic-light buttons.
-            .padding(.top, 38)
             .padding(.bottom, 10)
 
             Divider()
 
             ScrollView {
-                // The glass container must live INSIDE the scroll view.
-                // Glass effects render in their own layer keyed to the
-                // container, so a container spanning the whole window let
-                // panels draw outside the scrolling region (clipping through
-                // the header and footer). Scoped to the scroll content, they
-                // scroll and clip like normal views.
-                VStack(alignment: .leading, spacing: 16) {
-                    accountSection
-                        .padding(14)
-                        .glassPanel()
-                    pingSection
-                        .padding(14)
-                        .glassPanel()
-                    activitySection
-                        .padding(14)
-                        .glassPanel()
-                    usageBarsSection
-                        .padding(14)
-                        .glassPanel()
-                    notificationsSection
-                        .padding(14)
-                        .glassPanel()
-                    appSection
-                        .padding(14)
-                        .glassPanel()
-                    updatesSection
-                        .padding(14)
-                        .glassPanel()
-                }
-                .claudeGlassContainer()
+                tabContent
                 .padding(20)
             }
             .scrollIndicators(.hidden)
@@ -84,8 +79,8 @@ struct SettingsView: View {
             footer
                 .background(.bar)
         }
-        .frame(width: 420, height: 660)
-        .background(WindowGlassBackground().ignoresSafeArea())
+        .frame(width: 460, height: 600)
+        .background(WindowGlassBackground(clearGlass: settings.preferClearGlass).ignoresSafeArea())
         .onAppear(perform: loadCurrentValues)
         .sheet(isPresented: $showingLogin) {
             CookieLoginSheet { sessionKey, organizationIDFromCookie, cookieHeader in
@@ -96,6 +91,26 @@ struct SettingsView: View {
                 )
             }
         }
+    }
+
+    @ViewBuilder
+    private var tabContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            switch selectedTab {
+            case .general:
+                accountSection.padding(14).glassPanel()
+                pingSection.padding(14).glassPanel()
+                activitySection.padding(14).glassPanel()
+            case .usage:
+                usageBarsSection.padding(14).glassPanel()
+            case .alerts:
+                notificationsSection.padding(14).glassPanel()
+            case .app:
+                appSection.padding(14).glassPanel()
+                updatesSection.padding(14).glassPanel()
+            }
+        }
+        .claudeGlassContainer()
     }
 
     // MARK: - Reusable rows
@@ -308,12 +323,6 @@ struct SettingsView: View {
                 ? "The next ping will create one dedicated Claude chat and reuse it afterward."
                 : "Pings are reusing one dedicated Claude chat.")
 
-            Button(appState.status == .sending ? "Sending\u{2026}" : "Ping now") {
-                appState.pingNow()
-            }
-            .claudePrimaryButton()
-            .disabled(appState.status == .sending)
-
             if !settings.conversationID.isEmpty {
                 HStack {
                     Button("Open pinger chat") {
@@ -345,6 +354,9 @@ struct SettingsView: View {
             toggleRow("Weekly (7 day)", isOn: $showWeeklyBar)
             toggleRow("Fable 5 weekly", isOn: $showFable5Bar)
             caption("Choose which usage windows appear in the menu bar popover.")
+            Divider()
+            toggleRow("Start sessions when available", isOn: $autoStartAvailableSessions)
+            caption("Off by default. When enabled, Session Pinger starts a newly available session even if it falls outside your schedule.")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -356,6 +368,8 @@ struct SettingsView: View {
             toggleRow("Ping failures", isOn: $notifyOnFailure)
             toggleRow("Claude services down", isOn: $notifyOnServiceOutage)
             toggleRow("Claude performing poorly", isOn: $notifyOnServiceDegraded)
+            toggleRow("New session available", isOn: $notifySessionAvailable)
+            toggleRow("Session started by app", isOn: $notifySessionStarted)
 
             thresholdPicker(
                 title: "Session usage alerts",
@@ -417,6 +431,9 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "App")
             toggleRow("Launch at login", isOn: $launchAtLogin)
+            toggleRow("Command-U opens menu", isOn: $enableCommandUShortcut)
+            toggleRow("Use clear Liquid Glass", isOn: $preferClearGlass)
+            caption("System Liquid Glass automatically follows appearance, contrast, motion, and transparency preferences.")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -541,6 +558,11 @@ struct SettingsView: View {
         showSessionBar = settings.showSessionBar
         showWeeklyBar = settings.showWeeklyBar
         showFable5Bar = settings.showFable5Bar
+        notifySessionAvailable = settings.notifySessionAvailable
+        notifySessionStarted = settings.notifySessionStarted
+        autoStartAvailableSessions = settings.autoStartAvailableSessions
+        enableCommandUShortcut = settings.enableCommandUShortcut
+        preferClearGlass = settings.preferClearGlass
         autoUpdate = settings.autoUpdateEnabled
         sessionKeyInput = ""
         testResult = nil
@@ -566,6 +588,11 @@ struct SettingsView: View {
         settings.showSessionBar = showSessionBar
         settings.showWeeklyBar = showWeeklyBar
         settings.showFable5Bar = showFable5Bar
+        settings.notifySessionAvailable = notifySessionAvailable
+        settings.notifySessionStarted = notifySessionStarted
+        settings.autoStartAvailableSessions = autoStartAvailableSessions
+        settings.enableCommandUShortcut = enableCommandUShortcut
+        settings.preferClearGlass = preferClearGlass
         settings.autoUpdateEnabled = autoUpdate
         LoginItemManager.setEnabled(launchAtLogin)
         appState.rescheduleTimer()

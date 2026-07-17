@@ -8,12 +8,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBarController: StatusBarController?
     private var settingsWindowController: SettingsWindowController?
     private var settingsShortcutMonitor: Any?
+    private var menuShortcutMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         settingsWindowController = SettingsWindowController(settings: settings, stats: stats, appState: appState)
         statusBarController = StatusBarController(settings: settings, stats: stats, appState: appState)
         installSettingsShortcut()
+        installMenuShortcut()
         closeStraySwiftUIWindows()
     }
 
@@ -38,6 +40,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let settingsShortcutMonitor {
             NSEvent.removeMonitor(settingsShortcutMonitor)
         }
+        if let menuShortcutMonitor {
+            NSEvent.removeMonitor(menuShortcutMonitor)
+        }
     }
 
     /// Cmd+, (the standard macOS Settings shortcut) opens Settings when it's
@@ -48,11 +53,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func installSettingsShortcut() {
         settingsShortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
-            guard event.charactersIgnoringModifiers == "," else { return event }
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             guard flags == .command else { return event }
-            self.appState.toggleSettingsWindow?()
-            return nil
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case ",":
+                self.appState.toggleSettingsWindow?()
+                return nil
+            case "u" where self.settings.enableCommandUShortcut:
+                self.appState.requestTogglePopover?()
+                return nil
+            default:
+                return event
+            }
+        }
+    }
+
+    /// Command-U opens or closes the menu bar popover even while another app
+    /// is active. The setting is checked at event time, so disabling it takes
+    /// effect immediately without restarting Session Pinger.
+    private func installMenuShortcut() {
+        menuShortcutMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            Task { @MainActor in
+                guard let self, self.settings.enableCommandUShortcut else { return }
+                let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                guard flags == .command, event.charactersIgnoringModifiers?.lowercased() == "u" else { return }
+                self.appState.requestTogglePopover?()
+            }
         }
     }
 }
