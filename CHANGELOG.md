@@ -3,11 +3,11 @@
 ## v1.16.0
 
 - Added on-by-default scheduled wake support for sleeping, plugged-in Macs, backed by a one-time administrator-installed helper that schedules persistent IOKit wake events.
-- Wakes one minute before each scheduled ping and returns to sleep 30 seconds afterward unless recent keyboard or pointer input shows that the Mac is in use.
+- Wakes five seconds before each scheduled ping, holds a 120-second `PreventSystemSleep` assertion, and returns to sleep after a 30-second physical HID activity observation when the Mac remains unused.
 - Added an in-app two-minute closed-lid wake/ping/return-to-sleep test, installation verification, schedule status, and a toggle that cancels app-owned wake events when disabled.
 - Made the clear Liquid Glass setting update the Settings window live, including its background, cards, fields, rail, idle toggles, and usage tracks.
 - Hold a short PreventSystemSleep assertion during scheduled clamshell wakes, schedule wake events five seconds before the ping, and record wake diagnostics so the app can finish work beyond macOS's native ten-second wake window.
-- Enforce a five-hour minimum between every scheduled session, including the overnight boundary, and reserve the gap after the final session for schedule realignment instead of availability-triggered starts.
+- Enforce a five-hour minimum between every scheduled session, including the overnight boundary, and protect the five hours before the next scheduled start from availability-triggered starts.
 - Prevent the clear-glass switch from animating every window surface in one transaction, and recognize Fable 5 usage across renamed and nested Claude usage-response formats.
 - Fixed regular-glass Settings tab lockups by keeping one stable page hierarchy and non-interactive glass rails; non-clear mode now uses a denser clear-glass tint over the regular window material.
 - Hardened scheduling, wake matching, overlapping ping handling, keychain updates, cookie validation, version parsing, model discovery, reset timestamps, countdown visibility, and connection-test input handling after a broader bug audit.

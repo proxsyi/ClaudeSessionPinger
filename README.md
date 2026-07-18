@@ -1,51 +1,93 @@
 # Session Pinger
 
-A tiny macOS menu bar app that sends claude.ai a scheduled message ("Say 1") so **you** control when your Claude usage sessions start and end -- instead of a session starting whenever you happen to send your first message of the day.
+A personal macOS menu bar app that sends a short message to claude.ai so Claude usage sessions begin at intentional times instead of drifting with the first manual message of the day.
 
 ## What it does
 
-- Pings claude.ai on your schedule (default: 5am, 10am, 3pm, 8pm) so your day splits into predictable session windows.
-- Live usage in the menu bar popover: 5-hour session and weekly bars with reset times, plus Claude service status.
-- Notifications for ping failures, Claude outages, degraded performance, and usage thresholds -- each individually toggleable.
-- Auto-updates from GitHub Releases (toggleable).
-- Lives only in the menu bar. No Dock icon.
+- Starts sessions on a configurable schedule. The defaults are 5:00 AM, 10:00 AM, 3:00 PM, and 8:00 PM.
+- Enforces at least five hours between every scheduled start, including the overnight boundary.
+- Reuses one dedicated Claude conversation for scheduled, manual, and connection-test pings.
+- Treats any non-empty Claude reply as success.
+- Shows session, weekly, and optional Fable 5 usage with reset times and Claude service status.
+- Supports dynamic Fable-scoped payloads and labels Fable as shared weekly when Claude reports no separate allowance.
+- Offers independent next-possible and scheduled countdowns.
+- Can optionally start an available session immediately, except within five hours of the next scheduled start or another successful ping.
+- Can wake a plugged-in, closed-lid MacBook for scheduled pings and return it to sleep when no physical input occurs.
+- Provides configurable notifications and GitHub Release update checks.
+- Lives only in the menu bar. There is no Dock icon.
 
 ## Get it running
 
-1. Download the latest `Session.Pinger.zip` from [Releases](https://github.com/proxsyi/ClaudeSessionPinger/releases) and unzip it.
-2. Drag `Session Pinger.app` into your **Applications** folder.
-3. Open it. **macOS will block the first launch** with *"Apple could not verify 'Session Pinger' is free of malware"* and only offer "Move to Trash" or "Done". This is expected: the app is signed with a personal certificate, not through Apple's paid notarization program. One-time fix:
-   - Click **Done** (not Move to Trash).
-   - Open **System Settings > Privacy & Security**, scroll to the bottom, and click **Open Anyway** next to Session Pinger, then confirm.
-   - Terminal alternative that skips all of the above: `xattr -dr com.apple.quarantine "/Applications/Session Pinger.app"` and then open the app normally.
-4. The first launch shows one keychain prompt ("Session Pinger wants to access key..."). Enter your Mac login password and click **Always Allow** -- it won't ask again, including after updates.
-5. Click the sparkle in your menu bar > **Settings** > **Log in with Claude**. Your session and organization are captured automatically. Done.
+1. Download `Session.Pinger.zip` from [GitHub Releases](https://github.com/proxsyi/ClaudeSessionPinger/releases) and unzip it.
+2. Move `Session Pinger.app` to **Applications**.
+3. Open it. If macOS says Apple could not verify the app, click **Done**, then use **System Settings > Privacy & Security > Open Anyway**.
 
-## Good to know
+   Terminal alternative:
 
-- claude.ai has no public API. This app reuses your own login session against claude.ai's internal endpoints (the same trick browser usage-tracker extensions use). It is not an official integration, and those endpoints can change without notice, breaking pings until the app is updated.
-- Your session credentials are stored only in the macOS Keychain -- never in plain text, never logged, never sent anywhere except claude.ai.
-- Automating the consumer chat app may not align with its terms of service. That's a personal call for your own account.
-- A sleeping Mac skips that scheduled ping; the next one fires normally.
+   ```bash
+   xattr -dr com.apple.quarantine "/Applications/Session Pinger.app"
+   ```
+
+4. Open **Settings > General > Log in with Claude**. The app captures the session, cookie header, and organization automatically.
+5. Optional: in **Settings > App**, install scheduled wake support. This is a one-time administrator-authorized installation.
+6. If using closed-lid wake, keep the MacBook plugged in and run the two-minute closed-lid test from Settings.
+
+## Scheduled wake
+
+- Scheduled wake is on by default, but requires the one-time helper installation.
+- The helper is installed at `/Library/PrivilegedHelperTools/com.proxsyi.claudesessionpinger.wake-helper`.
+- It is root-owned, restricted to the installing user, and accepts only fixed `version`, `schedule`, `cancel`, `hold`, and `sleep` commands.
+- Wake events are registered five seconds before each scheduled ping.
+- The helper holds a `PreventSystemSleep` assertion for up to 120 seconds while the app pings.
+- After an automatic ping, the app waits 30 seconds and checks `IOHIDSystem` physical-input idle time. If no physical activity occurred, it requests sleep.
+- A closed-lid wake, ping, and return-to-sleep test passed on a plugged-in MacBook on July 18, 2026.
+
+## Shortcuts
+
+- **Command-U:** toggle the menu bar popover globally when enabled.
+- **Command-,**: save and close Settings, then restore the popover.
+
+## Security and storage
+
+- Keychain service: `com.proxsyi.claudesessionpinger`.
+- Keychain accounts: `sessionKey` and `cookieHeader`.
+- Credentials are never written to plain-text files or logs.
+- Settings use `UserDefaults`.
+- Activity history: `~/Library/Application Support/ClaudeSessionPinger/history.json`.
+- Wake diagnostics: `~/Library/Application Support/ClaudeSessionPinger/wake-events.log`.
+
+## Important limitation
+
+Claude.ai does not provide a supported consumer-chat API for this workflow. Session Pinger uses undocumented consumer-web endpoints with your own browser session. Endpoint, authentication, model, or usage-payload changes can require an app update.
 
 ## Building from source
 
-Requires macOS 13+ and Xcode command line tools.
+Requires macOS 13 or newer and Xcode command-line tools.
 
-~~~bash
+```bash
 git clone https://github.com/proxsyi/ClaudeSessionPinger.git
 cd ClaudeSessionPinger
 ./Scripts/build_app.sh
-~~~
+```
 
-The app lands in `dist/Session Pinger.app` -- move it to /Applications. Don't run the raw package from Xcode's Play button: the app must run as a real `.app` bundle for the menu bar item and notifications to work.
+The signed and strictly verified app is written to `dist/Session Pinger.app`. Run the assembled app bundle rather than the raw Swift package executable.
 
 ## Uninstall
 
-Quit the app, delete it from /Applications, then optionally:
+Quit the app and delete it from `/Applications`. To remove current local data and Keychain records:
 
-~~~bash
-rm -rf ~/Library/Application\ Support/ClaudeSessionPinger
-security delete-generic-password -s com.cash.claudesessionpinger -a sessionKey
-security delete-generic-password -s com.cash.claudesessionpinger -a cookieHeader
-~~~
+```bash
+rm -rf "$HOME/Library/Application Support/ClaudeSessionPinger"
+security delete-generic-password -s com.proxsyi.claudesessionpinger -a sessionKey
+security delete-generic-password -s com.proxsyi.claudesessionpinger -a cookieHeader
+```
+
+If scheduled wake support was installed, remove the privileged files with administrator authorization:
+
+```bash
+sudo rm -f /Library/PrivilegedHelperTools/com.proxsyi.claudesessionpinger.wake-helper
+sudo rm -f "/Library/Application Support/SessionPinger/allowed_uid"
+sudo rmdir "/Library/Application Support/SessionPinger" 2>/dev/null || true
+```
+
+Legacy installations may also have Keychain records under `com.cash.claudesessionpinger`. Remove those only after confirming the current credentials work.
