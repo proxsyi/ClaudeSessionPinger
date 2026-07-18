@@ -19,6 +19,8 @@ mkdir -p "${APP_DIR}/Contents/MacOS"
 mkdir -p "${APP_DIR}/Contents/Resources"
 
 cp "${BUILD_DIR}/ClaudeSessionPinger" "${APP_DIR}/Contents/MacOS/ClaudeSessionPinger"
+cp "${BUILD_DIR}/SessionPingerWakeHelper" "${APP_DIR}/Contents/Resources/SessionPingerWakeHelper"
+chmod 755 "${APP_DIR}/Contents/Resources/SessionPingerWakeHelper"
 cp "Resources/Info.plist" "${APP_DIR}/Contents/Info.plist"
 cp "Resources/AppIcon.icns" "${APP_DIR}/Contents/Resources/AppIcon.icns"
 

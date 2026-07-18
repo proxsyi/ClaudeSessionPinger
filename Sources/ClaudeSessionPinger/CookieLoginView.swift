@@ -211,6 +211,7 @@ struct CookieLoginRepresentable: NSViewRepresentable {
 
 struct CookieLoginSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("preferClearGlass") private var preferClearGlass = true
     let onComplete: (_ sessionKey: String, _ organizationID: String?, _ cookieHeader: String) -> Void
 
     @State private var didFinish = false
@@ -227,10 +228,11 @@ struct CookieLoginSheet: View {
                 if case .loading = loginState {
                     ProgressView()
                         .controlSize(.small)
+                        .padding(6)
+                        .glassPanel(cornerRadius: 12)
                 }
                 Button("Cancel") { dismiss() }
-                    .buttonStyle(.plain)
-                    .foregroundColor(ClaudeTheme.textSecondary)
+                    .claudeGhostButton()
             }
             .padding(12)
             Divider()
@@ -250,8 +252,7 @@ struct CookieLoginSheet: View {
                         }
                         .claudePrimaryButton()
                         Button("Use manual paste instead") { dismiss() }
-                            .buttonStyle(.plain)
-                            .foregroundColor(ClaudeTheme.textSecondary)
+                            .claudeGhostButton()
                     }
                 }
                 .padding(16)
@@ -277,7 +278,8 @@ struct CookieLoginSheet: View {
                 .padding(12)
             }
         }
+        .environment(\.claudeClearGlass, preferClearGlass)
         .frame(width: 480, height: 620)
-        .background(.regularMaterial)
+        .background(WindowGlassBackground(clearGlass: preferClearGlass).ignoresSafeArea())
     }
 }

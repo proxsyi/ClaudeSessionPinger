@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.16.0
+
+- Added on-by-default scheduled wake support for sleeping, plugged-in Macs, backed by a one-time administrator-installed helper that schedules persistent IOKit wake events.
+- Wakes one minute before each scheduled ping and returns to sleep 30 seconds afterward unless recent keyboard or pointer input shows that the Mac is in use.
+- Added an in-app two-minute closed-lid wake/ping/return-to-sleep test, installation verification, schedule status, and a toggle that cancels app-owned wake events when disabled.
+- Made the clear Liquid Glass setting update the Settings window live, including its background, cards, fields, rail, idle toggles, and usage tracks.
+- Hold a short PreventSystemSleep assertion during scheduled clamshell wakes, schedule wake events five seconds before the ping, and record wake diagnostics so the app can finish work beyond macOS's native ten-second wake window.
+- Enforce a five-hour minimum between every scheduled session, including the overnight boundary, and reserve the gap after the final session for schedule realignment instead of availability-triggered starts.
+- Prevent the clear-glass switch from animating every window surface in one transaction, and recognize Fable 5 usage across renamed and nested Claude usage-response formats.
+- Fixed regular-glass Settings tab lockups by keeping one stable page hierarchy and non-interactive glass rails; non-clear mode now uses a denser clear-glass tint over the regular window material.
+- Hardened scheduling, wake matching, overlapping ping handling, keychain updates, cookie validation, version parsing, model discovery, reset timestamps, countdown visibility, and connection-test input handling after a broader bug audit.
+- Treat any non-empty Claude reply as a successful ping and fixed the wake-sync error path for Swift 5 compilation.
+- Read Fable from dynamic model-scoped usage payloads, accurately mirror Weekly when Claude merges the Fable allowance into the shared pool, and remove expensive tab-wide glass animations for immediate Settings navigation.
+- Added a lightweight sliding tab indicator and hardened closed-lid wake ownership so overdue timers cannot race the wake notification; extended the sleep assertion to cover ping retries.
+- Registered for wake events on the NSWorkspace notification center so closed-lid wake handling actually runs.
+- Persisted closed-lid test progress and pass/fail results and display the latest result whenever Settings opens.
+- Corrected return-to-sleep activity detection to use IOHIDSystem hardware-input idle time and compare it with the actual 30-second observation window instead of requiring an impossible 60 seconds of idle time after wake.
+- Made Start sessions when available evaluate immediately on Save and every usage refresh, protect the five hours before the next scheduled start, and suppress duplicate starts for five hours after any successful ping.
+
 ## v1.15.0
 
 - Reorganized Settings into General, Usage, Alerts, and App tabs, moved the title beside the traffic lights, and shortened the window.
@@ -9,6 +28,12 @@
 - Fixed the next-possible countdown to follow Claude's actual session reset instead of the next scheduled ping, including after the final daily schedule slot.
 - Added independent next-possible and scheduled countdown toggles plus a main-focus selector when both are visible.
 - Command-U now debounces key repeat, Command-, saves before closing Settings and restores the popover, and Claude service status opens the public status site.
+- Replaced flat switches, fields, segmented choices, threshold pills, schedule controls, progress tracks, and login actions with interactive Liquid Glass variants while retaining requested status and accent colors.
+- Command-U now tracks the physical key-down/key-up cycle so holding the shortcut cannot toggle the popover twice.
+- Restored the compact Ping and countdown-control layouts while keeping their existing fields, steppers, and segmented control on Liquid Glass surfaces; reduced switch sizing.
+- Added a modifier-state recovery path and popover transition guard for more reliable Command-U behavior when macOS misses the Carbon release event.
+- Removed redundant glass wrappers from native model, schedule, and countdown selectors so macOS renders each control once; restored the original compact schedule button treatment.
+- Changed the countdown main-focus control to the same compact menu selector used by the model picker.
 - Added configurable notifications for newly available and app-started sessions, plus an off-by-default option to start newly available sessions outside the schedule.
 - Switched custom surfaces to adaptive system Liquid Glass with a user-selectable clear appearance that follows macOS accessibility and appearance settings.
 

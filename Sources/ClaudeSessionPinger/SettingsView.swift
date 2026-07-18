@@ -45,6 +45,7 @@ struct SettingsView: View {
     @State private var notifySessionStarted = true
     @State private var autoStartAvailableSessions = false
     @State private var enableCommandUShortcut = true
+    @State private var enableScheduledWake = true
     @State private var preferClearGlass = true
     @State private var selectedTab: SettingsTab = .general
     @State private var autoUpdate = true
@@ -53,7 +54,7 @@ struct SettingsView: View {
     @State private var showingLogin = false
     @State private var loginCaptured = false
     @State private var isFetchingOrganization = false
-    @Namespace private var tabSelectionAnimation
+    @State private var showManualKeys = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -65,26 +66,22 @@ struct SettingsView: View {
 
             ScrollView {
                 tabContent
-                    .id(selectedTab)
-                    .transition(.asymmetric(
-                        insertion: .opacity.combined(with: .move(edge: .trailing)),
-                        removal: .opacity.combined(with: .move(edge: .leading))
-                    ))
                     .padding(20)
             }
-            .animation(.easeInOut(duration: 0.32), value: selectedTab)
             .scrollIndicators(.hidden)
             .clipped()
 
             Divider()
 
             footer
-                .background(WindowGlassBackground(clearGlass: settings.preferClearGlass))
+                .background(WindowGlassBackground(clearGlass: preferClearGlass))
         }
+        .environment(\.claudeClearGlass, preferClearGlass)
         .frame(width: 460, height: 600)
-        .background(WindowGlassBackground(clearGlass: settings.preferClearGlass).ignoresSafeArea())
+        .background(WindowGlassBackground(clearGlass: preferClearGlass).ignoresSafeArea())
         .onAppear {
             loadCurrentValues()
+            appState.refreshWakeTestResult()
             appState.requestSaveAndCloseSettings = {
                 save(showPopoverAfterClose: true)
             }
@@ -107,8 +104,21 @@ struct SettingsView: View {
     private var settingsTabBar: some View {
         GeometryReader { proxy in
             if #available(macOS 26.0, *) {
-                GlassEffectContainer(spacing: 6) {
-                    HStack(spacing: 4) {
+                let railGlass = preferClearGlass ? Glass.clear : Glass.clear.tint(Color.primary.opacity(0.10))
+                let tabCount = CGFloat(SettingsTab.allCases.count)
+                let indicatorWidth = max((proxy.size.width - 8) / tabCount, 1)
+                ZStack(alignment: .leading) {
+                    Capsule(style: .continuous)
+                        .fill(ClaudeTheme.accent.opacity(0.88))
+                        .overlay(
+                            Capsule(style: .continuous)
+                                .strokeBorder(Color.white.opacity(0.22), lineWidth: 0.75)
+                        )
+                        .frame(width: indicatorWidth, height: 30)
+                        .offset(x: indicatorWidth * CGFloat(selectedTabIndex))
+                        .animation(.easeInOut(duration: 0.20), value: selectedTab)
+
+                    HStack(spacing: 0) {
                         ForEach(SettingsTab.allCases) { tab in
                             Button {
                                 selectTab(tab)
@@ -121,25 +131,15 @@ struct SettingsView: View {
                             }
                             .buttonStyle(.plain)
                             .foregroundStyle(selectedTab == tab ? Color.white : ClaudeTheme.textSecondary)
-                            .background {
-                                if selectedTab == tab {
-                                    Capsule(style: .continuous)
-                                        .fill(Color.clear)
-                                        .glassEffect(
-                                            .regular.tint(ClaudeTheme.accent).interactive(),
-                                            in: Capsule(style: .continuous)
-                                        )
-                                        .matchedGeometryEffect(id: "selected-settings-tab", in: tabSelectionAnimation)
-                                }
-                            }
                         }
                     }
-                    .padding(4)
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Capsule(style: .continuous))
-                    .glassEffect(.clear.interactive(), in: Capsule(style: .continuous))
-                    .simultaneousGesture(tabDragGesture(width: proxy.size.width))
+                    .animation(.easeInOut(duration: 0.14), value: selectedTab)
                 }
+                .padding(4)
+                .frame(maxWidth: .infinity)
+                .contentShape(Capsule(style: .continuous))
+                .glassEffect(railGlass, in: Capsule(style: .continuous))
+                .simultaneousGesture(tabDragGesture(width: proxy.size.width))
             } else {
                 Picker("Settings section", selection: $selectedTab) {
                     ForEach(SettingsTab.allCases) { tab in
@@ -153,11 +153,13 @@ struct SettingsView: View {
         .frame(height: 42)
     }
 
+    private var selectedTabIndex: Int {
+        SettingsTab.allCases.firstIndex(of: selectedTab) ?? 0
+    }
+
     private func selectTab(_ tab: SettingsTab) {
         guard tab != selectedTab else { return }
-        withAnimation(.easeInOut(duration: 0.32)) {
-            selectedTab = tab
-        }
+        selectedTab = tab
     }
 
     private func tabDragGesture(width: CGFloat) -> some Gesture {
@@ -204,8 +206,7 @@ struct SettingsView: View {
             Spacer()
             Toggle("", isOn: isOn)
                 .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.small)
+                .toggleStyle(ClaudeGlassToggleStyle())
                 .accessibilityLabel(Text(title))
         }
     }
@@ -259,17 +260,29 @@ struct SettingsView: View {
     /// Collapsed by default: the organization ID and session key are captured
     /// automatically at login, so these fields exist only for manual fixes.
     private var keysDisclosure: some View {
-        DisclosureGroup("Keys") {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.78)) {
+                    showManualKeys.toggle()
+                }
+            } label: {
+                Label("Keys", systemImage: showManualKeys ? "chevron.down" : "chevron.right")
+            }
+            .claudeGhostButton()
+
+            if showManualKeys {
             VStack(alignment: .leading, spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
                     fieldLabel("Organization ID")
                     TextField("Filled automatically on login", text: $organizationID)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.plain)
+                        .claudeGlassField()
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     fieldLabel("Session key")
                     SecureField(settings.sessionKey.isEmpty ? "Paste sessionKey cookie" : settings.maskedSessionKey, text: $sessionKeyInput)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.plain)
+                        .claudeGlassField()
                     caption("Only needed if the built-in login doesn't work for your account.")
                 }
                 caption(settings.cookieHeader.isEmpty
@@ -277,6 +290,8 @@ struct SettingsView: View {
                     : "Full login cookies captured and stored in the keychain.")
             }
             .padding(.top, 8)
+            .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
         .font(.system(size: 12, weight: .medium))
         .foregroundColor(ClaudeTheme.textSecondary)
@@ -296,13 +311,15 @@ struct SettingsView: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .tint(ClaudeTheme.accent)
                 caption("Your choice is tried first. If Claude rejects it, the app falls back to another available model.")
             }
 
             VStack(alignment: .leading, spacing: 4) {
                 fieldLabel("Message")
                 TextField("Say 1", text: $message)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.plain)
+                    .claudeGlassField()
             }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -322,19 +339,34 @@ struct SettingsView: View {
                             .font(.system(size: 12, design: .monospaced))
                             .foregroundColor(ClaudeTheme.textPrimary)
                         }
+                        .controlSize(.small)
                         Spacer()
                         Button(action: { slots.remove(at: index) }) {
                             Image(systemName: "minus.circle")
                         }
                         .buttonStyle(.plain)
+                        .foregroundColor(ClaudeTheme.textSecondary)
+                        .help("Remove time")
                     }
                 }
                 Button("Add time") {
-                    slots.append(ScheduleSlot(hour: 12, minute: 0))
+                    if let hour = ScheduleRules.firstAvailableHour(addingTo: slots) {
+                        slots.append(ScheduleSlot(hour: hour, minute: 0))
+                    }
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(ClaudeTheme.accent)
+                .disabled(ScheduleRules.firstAvailableHour(addingTo: slots) == nil)
+
+                if let scheduleValidationMessage {
+                    Text(scheduleValidationMessage)
+                        .font(.system(size: 11))
+                        .foregroundColor(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    caption("Every session must be at least 5 hours from the sessions before and after it, including overnight.")
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -437,17 +469,23 @@ struct SettingsView: View {
             toggleRow("Next possible session", isOn: $showNextPossibleCountdown)
             toggleRow("Scheduled session", isOn: $showScheduledCountdown)
             if showNextPossibleCountdown && showScheduledCountdown {
-                Picker("Main focus", selection: $countdownFocus) {
-                    ForEach(CountdownFocus.allCases) { focus in
-                        Text(focus.label).tag(focus)
+                VStack(alignment: .leading, spacing: 6) {
+                    fieldLabel("Main focus")
+                    Picker("Main focus", selection: $countdownFocus) {
+                        ForEach(CountdownFocus.allCases) { focus in
+                            Text(focus.label).tag(focus)
+                        }
                     }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .tint(ClaudeTheme.accent)
+                    caption("The other enabled countdown appears underneath in gray.")
                 }
-                .pickerStyle(.segmented)
-                caption("The other enabled countdown appears underneath in gray.")
             }
             Divider()
             toggleRow("Start sessions when available", isOn: $autoStartAvailableSessions)
-            caption("Off by default. When enabled, Session Pinger starts a newly available session even if it falls outside your schedule.")
+            caption("Off by default. Starts an available session immediately unless the next scheduled start is within five hours. A successful manual or automatic ping prevents another start for five hours.")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -511,11 +549,27 @@ struct SettingsView: View {
                 .font(.system(size: 11, weight: .medium).monospacedDigit())
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
-                .background(Capsule(style: .continuous).fill(isOn ? ClaudeTheme.accent : Color.primary.opacity(0.08)))
                 .foregroundColor(isOn ? .white : ClaudeTheme.textSecondary)
         }
         .buttonStyle(.plain)
+        .claudeGlassChoice(isSelected: isOn)
         .help(isOn ? "Click to stop notifying at \(threshold)%" : "Click to notify at \(threshold)%")
+    }
+
+    private func wakeTestResultSymbol(_ outcome: WakeTestOutcome) -> String {
+        switch outcome {
+        case .pending: return "clock"
+        case .passed: return "checkmark.circle.fill"
+        case .failed: return "xmark.circle.fill"
+        }
+    }
+
+    private func wakeTestResultColor(_ outcome: WakeTestOutcome) -> Color {
+        switch outcome {
+        case .pending: return ClaudeTheme.textSecondary
+        case .passed: return ClaudeTheme.accent
+        case .failed: return .orange
+        }
     }
 
     private var appSection: some View {
@@ -523,8 +577,33 @@ struct SettingsView: View {
             SectionHeader(text: "App")
             toggleRow("Launch at login", isOn: $launchAtLogin)
             toggleRow("Command-U opens menu", isOn: $enableCommandUShortcut)
+            toggleRow("Wake Mac for scheduled pings", isOn: $enableScheduledWake)
+            if enableScheduledWake {
+                caption(appState.wakeSupportStatus)
+                if let result = appState.wakeTestResult {
+                    Label(result.message, systemImage: wakeTestResultSymbol(result.outcome))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(wakeTestResultColor(result.outcome))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                HStack(spacing: 8) {
+                    if !appState.wakeHelperInstalled {
+                        Button(appState.isInstallingWakeSupport ? "Installing\u{2026}" : "Install wake support") {
+                            appState.installWakeSupport()
+                        }
+                        .claudePrimaryButton()
+                        .disabled(appState.isInstallingWakeSupport)
+                    } else {
+                        Button("Run 2-minute closed-lid test") {
+                            appState.testWakeSupport()
+                        }
+                        .claudeGhostButton()
+                    }
+                }
+                caption("Keep the MacBook connected to power. Session Pinger wakes it five seconds before a scheduled ping, then returns it to sleep after 30 seconds unless you're using it. The test exercises wake, ping, and return-to-sleep together.")
+            }
             toggleRow("Use clear Liquid Glass", isOn: $preferClearGlass)
-            caption("System Liquid Glass automatically follows appearance, contrast, motion, and transparency preferences.")
+            caption("Clear changes the Settings background, cards, fields, rails, and idle controls immediately. System accessibility and appearance preferences still apply.")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -584,12 +663,17 @@ struct SettingsView: View {
                 .claudeGhostButton()
                 Button("Save") { save() }
                     .claudePrimaryButton()
+                    .disabled(scheduleValidationMessage != nil)
             }
         }
         .padding(16)
     }
 
     // MARK: - Helpers
+
+    private var scheduleValidationMessage: String? {
+        ScheduleRules.validationMessage(for: slots)
+    }
 
     private var currentVersion: String {
         (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "?"
@@ -656,6 +740,7 @@ struct SettingsView: View {
         notifySessionStarted = settings.notifySessionStarted
         autoStartAvailableSessions = settings.autoStartAvailableSessions
         enableCommandUShortcut = settings.enableCommandUShortcut
+        enableScheduledWake = settings.enableScheduledWake
         preferClearGlass = settings.preferClearGlass
         autoUpdate = settings.autoUpdateEnabled
         sessionKeyInput = ""
@@ -663,6 +748,10 @@ struct SettingsView: View {
     }
 
     private func save(showPopoverAfterClose: Bool = false) {
+        guard scheduleValidationMessage == nil else {
+            withAnimation(.easeInOut(duration: 0.2)) { selectedTab = .general }
+            return
+        }
         let trimmedSessionKeyInput = sessionKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedSessionKeyInput.isEmpty {
             settings.sessionKey = trimmedSessionKeyInput
@@ -672,7 +761,9 @@ struct SettingsView: View {
         settings.model = trimmedModel.isEmpty ? UsageChecker.fallbackModels[0] : trimmedModel
         let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
         settings.message = trimmedMessage.isEmpty ? "Say 1" : trimmedMessage
-        settings.scheduleSlots = slots.isEmpty ? SettingsStore.defaultSlots : slots
+        settings.scheduleSlots = slots.sorted {
+            ($0.hour, $0.minute) < ($1.hour, $1.minute)
+        }
         settings.launchAtLogin = launchAtLogin
         settings.notifyOnFailure = notifyOnFailure
         settings.notifyOnServiceOutage = notifyOnServiceOutage
@@ -689,10 +780,12 @@ struct SettingsView: View {
         settings.notifySessionStarted = notifySessionStarted
         settings.autoStartAvailableSessions = autoStartAvailableSessions
         settings.enableCommandUShortcut = enableCommandUShortcut
+        settings.enableScheduledWake = enableScheduledWake
         settings.preferClearGlass = preferClearGlass
         settings.autoUpdateEnabled = autoUpdate
         LoginItemManager.setEnabled(launchAtLogin)
         appState.rescheduleTimer()
+        appState.startAvailableSessionIfNeeded()
         appState.closeSettingsWindow?()
         if showPopoverAfterClose {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
@@ -709,7 +802,8 @@ struct SettingsView: View {
         let orgToTest = organizationID.trimmingCharacters(in: .whitespacesAndNewlines)
         let selectedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
         let modelToTest = selectedModel.isEmpty ? UsageChecker.fallbackModels[0] : selectedModel
-        let messageToTest = message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Say 1" : message
+        let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        let messageToTest = trimmedMessage.isEmpty ? "Say 1" : trimmedMessage
         // A manually pasted key can't be paired with the stored cookies (they
         // belong to the previous session), so fall back to just that key.
         let cookieHeaderToTest = trimmedInput.isEmpty ? settings.effectiveCookieHeader : "sessionKey=\(keyToTest)"
@@ -725,7 +819,7 @@ struct SettingsView: View {
                 )
                 await MainActor.run {
                     settings.conversationID = outcome.conversationID
-                    testResult = outcome.matchedExpected ? "Success: got expected reply" : "Connected, but reply was: \(outcome.replyText)"
+                    testResult = outcome.matchedExpected ? "Success: got reply" : "Connected, but Claude returned an empty reply"
                     isTesting = false
                 }
             } catch {

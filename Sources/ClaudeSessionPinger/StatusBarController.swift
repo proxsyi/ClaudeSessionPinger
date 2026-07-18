@@ -9,6 +9,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private var cancellables = Set<AnyCancellable>()
     private let appState: AppState
     private var countdownTimer: Timer?
+    private var popoverOpenedAt = Date.distantPast
 
     init(settings: SettingsStore, stats: StatsStore, appState: AppState) {
         self.appState = appState
@@ -63,11 +64,13 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     @objc private func togglePopover(_ sender: AnyObject?) {
         guard let button = statusItem.button else { return }
         if popover.isShown {
+            guard Date().timeIntervalSince(popoverOpenedAt) >= 0.35 else { return }
             popover.performClose(sender)
         } else {
             Task { await appState.refreshUsageIfStale() }
             NSApp.activate(ignoringOtherApps: true)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            popoverOpenedAt = Date()
             popover.contentViewController?.view.window?.makeKey()
         }
     }

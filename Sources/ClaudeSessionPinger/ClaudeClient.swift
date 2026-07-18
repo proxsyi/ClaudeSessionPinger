@@ -109,7 +109,7 @@ enum ClaudeClient {
         try validate(response: completionResponse, data: completionData)
 
         let replyText = parseCompletionStream(completionData).trimmingCharacters(in: .whitespacesAndNewlines)
-        let matched = replyText.contains("1")
+        let matched = !replyText.isEmpty
         return PingOutcome(conversationID: conversationID, replyText: replyText, matchedExpected: matched)
     }
 

@@ -41,6 +41,7 @@ final class SettingsStore: ObservableObject {
         static let showNextPossibleCountdown = "showNextPossibleCountdown"
         static let showScheduledCountdown = "showScheduledCountdown"
         static let countdownFocus = "countdownFocus"
+        static let enableScheduledWake = "enableScheduledWake"
         static let scheduleSlots = "scheduleSlots"
         static let launchAtLogin = "launchAtLogin"
         static let notifyOnFailure = "notifyOnFailure"
@@ -103,6 +104,9 @@ final class SettingsStore: ObservableObject {
     }
     @Published var countdownFocus: CountdownFocus {
         didSet { UserDefaults.standard.set(countdownFocus.rawValue, forKey: Keys.countdownFocus) }
+    }
+    @Published var enableScheduledWake: Bool {
+        didSet { UserDefaults.standard.set(enableScheduledWake, forKey: Keys.enableScheduledWake) }
     }
     @Published var scheduleSlots: [ScheduleSlot] {
         didSet {
@@ -184,6 +188,7 @@ final class SettingsStore: ObservableObject {
         showNextPossibleCountdown = defaults.object(forKey: Keys.showNextPossibleCountdown) == nil ? true : defaults.bool(forKey: Keys.showNextPossibleCountdown)
         showScheduledCountdown = defaults.object(forKey: Keys.showScheduledCountdown) == nil ? true : defaults.bool(forKey: Keys.showScheduledCountdown)
         countdownFocus = CountdownFocus(rawValue: defaults.string(forKey: Keys.countdownFocus) ?? "") ?? .nextPossible
+        enableScheduledWake = defaults.object(forKey: Keys.enableScheduledWake) == nil ? true : defaults.bool(forKey: Keys.enableScheduledWake)
         launchAtLogin = defaults.bool(forKey: Keys.launchAtLogin)
         notifyOnFailure = defaults.object(forKey: Keys.notifyOnFailure) == nil ? true : defaults.bool(forKey: Keys.notifyOnFailure)
         notifyOnServiceOutage = defaults.object(forKey: Keys.notifyOnServiceOutage) == nil ? true : defaults.bool(forKey: Keys.notifyOnServiceOutage)
@@ -218,7 +223,7 @@ final class SettingsStore: ObservableObject {
         autoUpdateEnabled = defaults.object(forKey: Keys.autoUpdateEnabled) == nil ? true : defaults.bool(forKey: Keys.autoUpdateEnabled)
         if let data = defaults.data(forKey: Keys.scheduleSlots),
            let decoded = try? JSONDecoder().decode([ScheduleSlot].self, from: data),
-           !decoded.isEmpty {
+           ScheduleRules.isValid(decoded) {
             scheduleSlots = decoded
         } else {
             scheduleSlots = SettingsStore.defaultSlots
@@ -246,7 +251,11 @@ final class SettingsStore: ObservableObject {
     /// the session key (e.g. after a manual key paste).
     var effectiveCookieHeader: String {
         let trimmedKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedKey.isEmpty, !cookieHeader.isEmpty, cookieHeader.contains(trimmedKey) {
+        let hasMatchingSessionCookie = cookieHeader
+            .split(separator: ";")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .contains("sessionKey=\(trimmedKey)")
+        if !trimmedKey.isEmpty, hasMatchingSessionCookie {
             return cookieHeader
         }
         return "sessionKey=\(trimmedKey)"

@@ -20,12 +20,15 @@ struct MenuBarContentView: View {
             usageSection
                 .padding(14)
                 .glassPanel()
-            countdownSection
-                .padding(14)
-                .glassPanel()
+            if settings.showNextPossibleCountdown || settings.showScheduledCountdown {
+                countdownSection
+                    .padding(14)
+                    .glassPanel()
+            }
             actionsSection
         }
         .claudeGlassContainer(spacing: 12)
+        .environment(\.claudeClearGlass, settings.preferClearGlass)
         .padding(16)
         .frame(width: 320)
         .background(WindowGlassBackground(clearGlass: settings.preferClearGlass).ignoresSafeArea())
@@ -118,9 +121,12 @@ struct MenuBarContentView: View {
             }
             if settings.showFable5Bar {
                 usageRow(
-                    title: "Fable 5 weekly",
+                    title: appState.usage?.fable5UsesSharedWeekly == true
+                        ? "Fable 5 (shared weekly)"
+                        : "Fable 5 weekly",
                     percent: appState.usage?.fable5Percent,
-                    resetText: fable5ResetText
+                    resetText: fable5ResetText,
+                    missingText: appState.usage == nil ? "No data yet" : "Not reported for this account"
                 )
             }
 
@@ -150,7 +156,7 @@ struct MenuBarContentView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func usageRow(title: String, percent: Int?, resetText: String?) -> some View {
+    private func usageRow(title: String, percent: Int?, resetText: String?, missingText: String = "No data yet") -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title)
@@ -167,7 +173,7 @@ struct MenuBarContentView: View {
                     .font(.system(size: 11))
                     .foregroundColor(ClaudeTheme.textSecondary)
             } else if percent == nil {
-                Text("No data yet")
+                Text(missingText)
                     .font(.system(size: 11))
                     .foregroundColor(ClaudeTheme.textSecondary)
             }
@@ -248,7 +254,11 @@ struct MenuBarContentView: View {
     }
 
     private var fable5ResetText: String? {
-        guard let date = appState.usage?.fable5ResetsAt else { return nil }
+        guard let usage = appState.usage else { return nil }
+        if usage.fable5UsesSharedWeekly {
+            return weeklyResetText.map { "Shared with Weekly · \($0)" } ?? "Shared with Weekly"
+        }
+        guard let date = usage.fable5ResetsAt else { return nil }
         let day = date.formatted(.dateTime.day().month(.abbreviated).year())
         let time = date.formatted(date: .omitted, time: .shortened)
         return "Resets on \(day) at \(time)"

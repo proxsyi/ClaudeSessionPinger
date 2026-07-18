@@ -28,13 +28,21 @@ enum KeychainStore {
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
         ]
-        SecItemDelete(baseQuery as CFDictionary)
+        let updateStatus = SecItemUpdate(
+            baseQuery as CFDictionary,
+            [kSecValueData as String: data] as CFDictionary
+        )
+        if updateStatus == errSecSuccess { return }
+        guard updateStatus == errSecItemNotFound else {
+            throw KeychainError.saveFailed(updateStatus)
+        }
+
         var attributes = baseQuery
         attributes[kSecValueData as String] = data
         attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let status = SecItemAdd(attributes as CFDictionary, nil)
-        guard status == errSecSuccess else {
-            throw KeychainError.saveFailed(status)
+        let addStatus = SecItemAdd(attributes as CFDictionary, nil)
+        guard addStatus == errSecSuccess else {
+            throw KeychainError.saveFailed(addStatus)
         }
     }
 

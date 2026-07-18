@@ -41,9 +41,8 @@ enum UpdateChecker {
     /// Compares two dotted version strings numerically (e.g. "1.10.0" > "1.9.3"),
     /// rather than lexicographically, so double-digit components sort correctly.
     static func isNewer(_ candidate: String, than current: String) -> Bool {
-        let candidateParts = candidate.split(separator: ".").compactMap { Int($0) }
-        let currentParts = current.split(separator: ".").compactMap { Int($0) }
-        guard !candidateParts.isEmpty, !currentParts.isEmpty else { return false }
+        guard let candidateParts = versionParts(candidate),
+              let currentParts = versionParts(current) else { return false }
         let count = max(candidateParts.count, currentParts.count)
         for i in 0..<count {
             let c = i < candidateParts.count ? candidateParts[i] : 0
@@ -51,6 +50,18 @@ enum UpdateChecker {
             if c != d { return c > d }
         }
         return false
+    }
+
+    private static func versionParts(_ version: String) -> [Int]? {
+        let core = version.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: true).first ?? ""
+        let pieces = core.split(separator: ".", omittingEmptySubsequences: false)
+        guard !pieces.isEmpty else { return nil }
+        var result: [Int] = []
+        for piece in pieces {
+            guard !piece.isEmpty, let number = Int(piece), number >= 0 else { return nil }
+            result.append(number)
+        }
+        return result
     }
 
     static func check(currentVersion: String) async -> UpdateCheckResult {

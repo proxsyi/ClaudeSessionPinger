@@ -2,6 +2,20 @@ import Foundation
 import AppKit
 import UserNotifications
 
+private actor WakeScheduleCoordinator {
+    private var latestGeneration = 0
+
+    func synchronize(
+        generation: Int,
+        enabled: Bool,
+        slots: [ScheduleSlot]
+    ) throws -> WakeScheduleSummary? {
+        guard generation >= latestGeneration else { return nil }
+        latestGeneration = generation
+        return try WakeSupport.syncSchedule(enabled: enabled, slots: slots)
+    }
+}
+
 @MainActor
 final class AppState: ObservableObject {
     @Published var status: PingStatus = .idle
@@ -22,6 +36,12 @@ final class AppState: ObservableObject {
     @Published var activeModel: String?
     /// Result line for the Settings "Send test notification" button.
     @Published var notificationTestStatus: String?
+    @Published var wakeHelperInstalled = WakeSupport.isInstalled
+    @Published var isInstallingWakeSupport = false
+    @Published var wakeSupportStatus = WakeSupport.isInstalled
+        ? "Wake support is installed."
+        : "One-time administrator installation required."
+    @Published var wakeTestResult = WakeSupport.lastTestResult
 
     let settings: SettingsStore
     let stats: StatsStore
@@ -35,6 +55,13 @@ final class AppState: ObservableObject {
     private var isPinging = false
     private var lastPingDate: Date?
     private let minimumGap: TimeInterval = 60
+    private let scheduledStartProtectionWindow: TimeInterval = 5 * 60 * 60
+    private var autoStartAttemptPending = false
+    private var pendingAutomaticWakePing: Date?
+    private var pendingAutomaticWakeIsTest = false
+    private var automaticWakePingTask: Task<Void, Never>?
+    private var wakeSyncGeneration = 0
+    private let wakeScheduleCoordinator = WakeScheduleCoordinator()
 
     init(settings: SettingsStore, stats: StatsStore) {
         self.settings = settings
@@ -44,25 +71,78 @@ final class AppState: ObservableObject {
         }
         rescheduleTimer()
         requestNotificationPermission()
-        NotificationCenter.default.addObserver(self, selector: #selector(handleWake), name: NSWorkspace.didWakeNotification, object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(handleWake),
+            name: NSWorkspace.didWakeNotification,
+            object: nil
+        )
         NotificationCenter.default.addObserver(self, selector: #selector(handleTimeZoneChange), name: NSNotification.Name.NSSystemTimeZoneDidChange, object: nil)
         scheduleUpdateChecks()
         scheduleUsageRefreshes()
     }
 
     deinit {
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
         NotificationCenter.default.removeObserver(self)
         updateTimer?.invalidate()
         usageTimer?.invalidate()
+        automaticWakePingTask?.cancel()
     }
 
     func rescheduleTimer() {
         scheduler.schedule(slots: settings.scheduleSlots)
         nextFireDate = scheduler.nextFireDate(slots: settings.scheduleSlots)
+        synchronizeWakeSchedule()
     }
 
     @objc private func handleWake() {
+        WakeSupport.appendDiagnostic("didWake received; idleSeconds=\(Int(WakeSupport.userIdleSeconds))")
+        let completedWakeTest = WakeSupport.consumeSuccessfulTestWake()
+        if completedWakeTest {
+            beginAutomaticWakeHold()
+            let testPing = Date().addingTimeInterval(15)
+            wakeSupportStatus = "Wake test succeeded. Testing the ping in 15 seconds."
+            sendNotification(
+                identifier: "wake-test-succeeded",
+                title: "Scheduled wake succeeded",
+                body: "Session Pinger will test the ping, then return the idle Mac to sleep."
+            )
+            wakeTestResult = WakeSupport.lastTestResult
+            queueAutomaticWakePing(at: testPing, isWakeTest: true)
+        } else if settings.enableScheduledWake,
+           let scheduledPing = WakeSupport.matchingScheduledPingAfterWake() {
+            beginAutomaticWakeHold()
+            queueAutomaticWakePing(at: scheduledPing)
+        } else {
+            WakeSupport.appendDiagnostic("wake did not match a Session Pinger event")
+        }
         rescheduleTimer()
+    }
+
+    private func queueAutomaticWakePing(at date: Date, isWakeTest: Bool = false) {
+        WakeSupport.appendDiagnostic("queued automatic ping for \(date.timeIntervalSince1970)")
+        automaticWakePingTask?.cancel()
+        pendingAutomaticWakePing = date
+        pendingAutomaticWakeIsTest = isWakeTest
+        let delay = max(0, date.timeIntervalSinceNow)
+        automaticWakePingTask = Task { [weak self] in
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            }
+            guard !Task.isCancelled else { return }
+            await self?.runScheduledPing(automaticWakeDate: date)
+        }
+    }
+
+    private func beginAutomaticWakeHold() {
+        do {
+            try WakeSupport.beginWakeHold()
+            WakeSupport.appendDiagnostic("started \(WakeSupport.wakeHoldDuration)-second PreventSystemSleep assertion")
+        } catch {
+            WakeSupport.appendDiagnostic("failed to start wake assertion: \(error.localizedDescription)")
+            wakeSupportStatus = error.localizedDescription
+        }
     }
 
     @objc private func handleTimeZoneChange() {
@@ -70,17 +150,206 @@ final class AppState: ObservableObject {
     }
 
     func pingNow() {
-        Task { await runPing(manual: true) }
+        Task { _ = await runPing(manual: true) }
     }
 
-    private func runScheduledPing() async {
-        await runPing(manual: false)
-    }
-
-    private func runPing(manual: Bool) async {
-        guard !isPinging else { return }
-        if let last = lastPingDate, !manual, Date().timeIntervalSince(last) < minimumGap {
+    private func runScheduledPing(automaticWakeDate: Date? = nil) async {
+        // On some wakes an overdue Timer can run before NSWorkspace posts
+        // didWake. Claim the stored wake here so the power assertion still
+        // starts before any network request.
+        if automaticWakeDate == nil,
+           settings.enableScheduledWake,
+           let scheduledPing = WakeSupport.matchingScheduledPingAfterWake() {
+            WakeSupport.appendDiagnostic("scheduler claimed wake before didWake notification")
+            beginAutomaticWakeHold()
+            queueAutomaticWakePing(at: scheduledPing)
             return
+        }
+
+        if automaticWakeDate == nil, pendingAutomaticWakePing != nil {
+            WakeSupport.appendDiagnostic("regular scheduler deferred to automatic wake owner")
+            return
+        }
+
+        if let automaticWakeDate {
+            guard let pending = pendingAutomaticWakePing,
+                  abs(pending.timeIntervalSince(automaticWakeDate)) < 1 else {
+                WakeSupport.appendDiagnostic("discarded stale automatic wake task")
+                return
+            }
+            let isWakeTest = pendingAutomaticWakeIsTest
+            pendingAutomaticWakePing = nil
+            pendingAutomaticWakeIsTest = false
+            automaticWakePingTask = nil
+            WakeSupport.appendDiagnostic("automatic ping started")
+
+            let completedPing = await runPing(manual: false)
+            if completedPing {
+                WakeSupport.appendDiagnostic("automatic ping finished; status=\(String(describing: status))")
+                scheduleReturnToSleep(wakeTestPingSucceeded: isWakeTest ? status == .success : nil)
+            } else {
+                WakeSupport.appendDiagnostic("automatic ping skipped because another ping already owned execution")
+                if isWakeTest {
+                    updateWakeTestResult(
+                        outcome: .failed,
+                        message: "Last closed-lid test failed: another ping prevented the test ping from running."
+                    )
+                }
+            }
+            return
+        }
+
+        _ = await runPing(manual: false)
+    }
+
+    func installWakeSupport() {
+        guard !isInstallingWakeSupport else { return }
+        isInstallingWakeSupport = true
+        wakeSupportStatus = "Waiting for administrator approval\u{2026}"
+        Task { [weak self] in
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    try WakeSupport.installBundledHelper()
+                }.value
+                guard let self else { return }
+                self.wakeHelperInstalled = WakeSupport.isInstalled
+                self.isInstallingWakeSupport = false
+                self.wakeSupportStatus = "Wake support installed. Scheduling wake events\u{2026}"
+                self.synchronizeWakeSchedule()
+            } catch {
+                guard let self else { return }
+                self.wakeHelperInstalled = WakeSupport.isInstalled
+                self.isInstallingWakeSupport = false
+                self.wakeSupportStatus = error.localizedDescription
+            }
+        }
+    }
+
+    func testWakeSupport() {
+        guard wakeHelperInstalled else {
+            wakeSupportStatus = "Install wake support before scheduling a test."
+            return
+        }
+        wakeSupportStatus = "Scheduling a two-minute wake test\u{2026}"
+        Task { [weak self] in
+            do {
+                let date = try await Task.detached(priority: .userInitiated) {
+                    try WakeSupport.scheduleTestWake()
+                }.value
+                self?.wakeSupportStatus = "Wake/ping/sleep test set for \(date.formatted(date: .omitted, time: .shortened)). Close the lid while plugged in."
+                self?.wakeTestResult = WakeSupport.lastTestResult
+            } catch {
+                self?.wakeSupportStatus = error.localizedDescription
+            }
+        }
+    }
+
+    private func synchronizeWakeSchedule() {
+        wakeSyncGeneration += 1
+        let generation = wakeSyncGeneration
+        let enabled = settings.enableScheduledWake
+        let slots = settings.scheduleSlots
+        if !enabled {
+            automaticWakePingTask?.cancel()
+            automaticWakePingTask = nil
+            pendingAutomaticWakePing = nil
+            pendingAutomaticWakeIsTest = false
+        }
+        wakeHelperInstalled = WakeSupport.isInstalled
+        if enabled && !wakeHelperInstalled {
+            wakeSupportStatus = "Enabled, but the one-time administrator installation is still required."
+            return
+        }
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                guard let summary = try await self.wakeScheduleCoordinator.synchronize(
+                    generation: generation,
+                    enabled: enabled,
+                    slots: slots
+                ) else { return }
+                guard generation == self.wakeSyncGeneration else { return }
+                if enabled {
+                    if let nextWake = summary.nextWake {
+                        self.wakeSupportStatus = "\(summary.eventCount) wakes scheduled. Next: \(nextWake.formatted(date: .abbreviated, time: .shortened))."
+                    } else {
+                        self.wakeSupportStatus = "Wake support is on; no future schedule is available yet."
+                    }
+                } else {
+                    self.wakeSupportStatus = "Scheduled wake is off."
+                }
+            } catch {
+                guard generation == self.wakeSyncGeneration else { return }
+                self.wakeSupportStatus = error.localizedDescription
+                self.wakeHelperInstalled = WakeSupport.isInstalled
+            }
+        }
+    }
+
+    func refreshWakeTestResult() {
+        wakeTestResult = WakeSupport.lastTestResult
+    }
+
+    private func updateWakeTestResult(outcome: WakeTestOutcome, message: String) {
+        WakeSupport.saveTestResult(outcome: outcome, message: message)
+        wakeTestResult = WakeSupport.lastTestResult
+    }
+
+    private func scheduleReturnToSleep(wakeTestPingSucceeded: Bool? = nil) {
+        wakeSupportStatus = "Ping finished. Waiting 30 seconds before returning to sleep."
+        let activityObservationStartedAt = Date()
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(WakeSupport.resleepDelay * 1_000_000_000))
+            guard let self, self.settings.enableScheduledWake else { return }
+            let idleSeconds = WakeSupport.userIdleSeconds
+            let activityObserved = WakeSupport.userWasActive(since: activityObservationStartedAt)
+            WakeSupport.appendDiagnostic(
+                "return-to-sleep activity check; idleSeconds=\(Int(idleSeconds)) observedSeconds=\(Int(Date().timeIntervalSince(activityObservationStartedAt))) active=\(activityObserved)"
+            )
+            guard !activityObserved else {
+                WakeSupport.appendDiagnostic("return-to-sleep skipped; physical user activity occurred after ping")
+                self.wakeSupportStatus = "Stayed awake because the Mac is being used."
+                if wakeTestPingSucceeded != nil {
+                    self.updateWakeTestResult(
+                        outcome: .failed,
+                        message: "Last closed-lid test was incomplete: the Mac was active, so return to sleep was skipped."
+                    )
+                }
+                return
+            }
+            self.wakeSupportStatus = "Returning the Mac to sleep…"
+            WakeSupport.appendDiagnostic("requesting system sleep")
+            if let pingSucceeded = wakeTestPingSucceeded {
+                let timestamp = Date().formatted(date: .abbreviated, time: .shortened)
+                self.updateWakeTestResult(
+                    outcome: pingSucceeded ? .passed : .failed,
+                    message: pingSucceeded
+                        ? "Closed-lid test passed at \(timestamp): wake, ping, and return-to-sleep request succeeded."
+                        : "Closed-lid test failed at \(timestamp): the Mac woke, but the ping failed."
+                )
+            }
+            do {
+                try await Task.detached(priority: .utility) {
+                    try WakeSupport.requestSystemSleep()
+                }.value
+            } catch {
+                self.wakeSupportStatus = error.localizedDescription
+                if wakeTestPingSucceeded != nil {
+                    self.updateWakeTestResult(
+                        outcome: .failed,
+                        message: "Last closed-lid test failed while returning the Mac to sleep: \(error.localizedDescription)"
+                    )
+                }
+            }
+        }
+    }
+
+    @discardableResult
+    private func runPing(manual: Bool) async -> Bool {
+        guard !isPinging else { return false }
+        if let last = lastPingDate, !manual, Date().timeIntervalSince(last) < minimumGap {
+            return false
         }
         guard settings.isConfigured else {
             status = .failure
@@ -88,7 +357,7 @@ final class AppState: ObservableObject {
             stats.addRecord(success: false, summary: "Missing credentials")
             notifyFailureIfNeeded(message: lastError ?? "")
             rescheduleTimer()
-            return
+            return true
         }
 
         isPinging = true
@@ -117,7 +386,7 @@ final class AppState: ObservableObject {
                 activeModel = modelToUse
                 lastPingDate = Date()
                 status = outcome.matchedExpected ? .success : .failure
-                let summary = outcome.matchedExpected ? "Got expected reply" : "Unexpected reply: \(outcome.replyText)"
+                let summary = outcome.matchedExpected ? "Got reply" : "Claude returned an empty reply"
                 stats.addRecord(success: outcome.matchedExpected, summary: summary)
                 if outcome.matchedExpected && settings.notifySessionStarted {
                     sendNotification(
@@ -129,7 +398,7 @@ final class AppState: ObservableObject {
                     )
                 }
                 if !outcome.matchedExpected {
-                    lastError = "Claude responded, but not with the expected text."
+                    lastError = "Claude returned an empty reply."
                     notifyFailureIfNeeded(message: lastError ?? "")
                 }
                 rescheduleTimer()
@@ -166,6 +435,7 @@ final class AppState: ObservableObject {
         }
 
         isPinging = false
+        return true
     }
 
     private func isRetryable(_ error: PingError) -> Bool {
@@ -288,30 +558,68 @@ final class AppState: ObservableObject {
     private var sessionAvailabilityBaselined = false
 
     private func handleSessionAvailability(previous: ClaudeUsage?, current: ClaudeUsage) {
+        let wasBaselined = sessionAvailabilityBaselined
         defer { sessionAvailabilityBaselined = true }
-        guard sessionAvailabilityBaselined, let previous else { return }
 
-        let becameAvailable = (previous.sessionPercent ?? 0) >= 100 && (current.sessionPercent ?? 100) < 100
+        let becameAvailable = wasBaselined
+            && (previous?.sessionPercent ?? 0) >= 100
+            && (current.sessionPercent ?? 100) < 100
         let resetRolledForward: Bool
-        if let oldReset = previous.sessionResetsAt, let newReset = current.sessionResetsAt {
-            resetRolledForward = oldReset <= Date() && newReset.timeIntervalSince(oldReset) > resetJitterTolerance
+        if wasBaselined,
+           let oldReset = previous?.sessionResetsAt,
+           let newReset = current.sessionResetsAt {
+            resetRolledForward = oldReset <= Date()
+                && newReset.timeIntervalSince(oldReset) > resetJitterTolerance
         } else {
             resetRolledForward = false
         }
-        guard becameAvailable || resetRolledForward else { return }
 
-        if settings.notifySessionAvailable {
-            sendNotification(
-                identifier: "session-available",
-                title: "A new Claude session is available",
-                body: "Your previous 5-hour window reset."
-            )
+        if becameAvailable || resetRolledForward {
+            if settings.notifySessionAvailable {
+                sendNotification(
+                    identifier: "session-available",
+                    title: "A new Claude session is available",
+                    body: "Your previous 5-hour window reset."
+                )
+            }
         }
 
-        guard settings.autoStartAvailableSessions, !isPinging else { return }
-        let scheduledSoon = nextFireDate.map { abs($0.timeIntervalSinceNow) <= 10 * 60 } ?? false
-        guard !scheduledSoon else { return }
-        Task { await runPing(manual: false) }
+        startAvailableSessionIfNeeded()
+    }
+
+    /// Starts immediately whenever Claude currently accepts session traffic,
+    /// except during the five hours before the next configured start. A
+    /// successful manual or automatic ping also suppresses duplicates for
+    /// five hours, including across app relaunches through Activity history.
+    func startAvailableSessionIfNeeded(now: Date = Date()) {
+        guard settings.autoStartAvailableSessions,
+              !isPinging,
+              !autoStartAttemptPending else { return }
+
+        guard let usage, now.timeIntervalSince(usage.fetchedAt) < 30 else {
+            Task { [weak self] in await self?.refreshUsage() }
+            return
+        }
+        guard let sessionPercent = usage.sessionPercent, sessionPercent < 100 else { return }
+
+        if let nextScheduled = scheduler.nextFireDate(after: now, slots: settings.scheduleSlots),
+           nextScheduled.timeIntervalSince(now) <= scheduledStartProtectionWindow {
+            return
+        }
+
+        let latestSuccessfulPing = stats.records.last(where: { $0.success })?.date
+        let mostRecentStart = [lastPingDate, latestSuccessfulPing].compactMap { $0 }.max()
+        if let mostRecentStart,
+           now.timeIntervalSince(mostRecentStart) < scheduledStartProtectionWindow {
+            return
+        }
+
+        autoStartAttemptPending = true
+        Task { [weak self] in
+            guard let self else { return }
+            _ = await self.runPing(manual: false)
+            self.autoStartAttemptPending = false
+        }
     }
 
     /// Thresholds already notified for the current session window.

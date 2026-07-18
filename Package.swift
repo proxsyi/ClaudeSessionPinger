@@ -11,6 +11,14 @@ let package = Package(
             linkerSettings: [
                 .linkedFramework("Carbon")
             ]
+        ),
+        .executableTarget(
+            name: "SessionPingerWakeHelper",
+            path: "Sources/SessionPingerWakeHelper",
+            linkerSettings: [
+                .linkedFramework("CoreFoundation"),
+                .linkedFramework("IOKit")
+            ]
         )
     ]
 )

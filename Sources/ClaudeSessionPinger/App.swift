@@ -15,7 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuHotKeyRef: EventHotKeyRef?
     private var menuHotKeyHandlerRef: EventHandlerRef?
     private var menuShortcutSettingObserver: NSObjectProtocol?
-    private var lastMenuHotKeyToggle = Date.distantPast
+    private var menuHotKeyIsDown = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -97,10 +97,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func registerMenuHotKey() {
         guard menuHotKeyRef == nil else { return }
 
-        var eventType = EventTypeSpec(
-            eventClass: OSType(kEventClassKeyboard),
-            eventKind: UInt32(kEventHotKeyPressed)
-        )
+        let eventTypes = [
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
+        ]
         let handler: EventHandlerUPP = { _, event, userData in
             guard let event, let userData else { return noErr }
             var hotKeyID = EventHotKeyID()
@@ -117,20 +117,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                   hotKeyID.signature == menuHotKeySignature,
                   hotKeyID.id == menuHotKeyIdentifier else { return noErr }
             let appDelegate = Unmanaged<AppDelegate>.fromOpaque(userData).takeUnretainedValue()
+            let eventKind = GetEventKind(event)
             Task { @MainActor in
-                appDelegate.handleMenuHotKeyPress()
+                appDelegate.handleMenuHotKeyEvent(kind: eventKind)
             }
             return noErr
         }
 
-        let installStatus = InstallEventHandler(
-            GetApplicationEventTarget(),
-            handler,
-            1,
-            &eventType,
-            Unmanaged.passUnretained(self).toOpaque(),
-            &menuHotKeyHandlerRef
-        )
+        let installStatus = eventTypes.withUnsafeBufferPointer { events in
+            InstallEventHandler(
+                GetApplicationEventTarget(),
+                handler,
+                events.count,
+                events.baseAddress,
+                Unmanaged.passUnretained(self).toOpaque(),
+                &menuHotKeyHandlerRef
+            )
+        }
         guard installStatus == noErr else { return }
 
         let hotKeyID = EventHotKeyID(signature: menuHotKeySignature, id: menuHotKeyIdentifier)
@@ -156,15 +159,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             RemoveEventHandler(menuHotKeyHandlerRef)
             self.menuHotKeyHandlerRef = nil
         }
+        menuHotKeyIsDown = false
     }
 
-    /// Carbon can emit repeated hot-key events while the keys are held. A
-    /// short debounce makes a quick press perform exactly one open/close.
-    private func handleMenuHotKeyPress() {
-        let now = Date()
-        guard now.timeIntervalSince(lastMenuHotKeyToggle) >= 0.45 else { return }
-        lastMenuHotKeyToggle = now
-        appState.requestTogglePopover?()
+    /// Toggle once per physical press. Carbon emits repeated pressed events
+    /// while keys are held; waiting for the matching release prevents one
+    /// press from opening and immediately closing the popover.
+    private func handleMenuHotKeyEvent(kind: UInt32) {
+        if kind == UInt32(kEventHotKeyReleased) {
+            menuHotKeyIsDown = false
+            return
+        }
+        guard kind == UInt32(kEventHotKeyPressed), !menuHotKeyIsDown else { return }
+        menuHotKeyIsDown = true
+        waitForMenuHotKeyRelease()
+        if NSApp.keyWindow?.title == "Settings" {
+            appState.toggleSettingsWindow?()
+        } else {
+            appState.requestTogglePopover?()
+        }
+    }
+
+    /// A Carbon release event can occasionally be lost while macOS changes
+    /// the active window to the popover. Polling the Command modifier gives
+    /// the shortcut a permission-free recovery path without accepting key
+    /// repeat as a second press.
+    private func waitForMenuHotKeyRelease() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+            guard let self, self.menuHotKeyIsDown else { return }
+            if NSEvent.modifierFlags.contains(.command) {
+                self.waitForMenuHotKeyRelease()
+            } else {
+                self.menuHotKeyIsDown = false
+            }
+        }
     }
 }
 
