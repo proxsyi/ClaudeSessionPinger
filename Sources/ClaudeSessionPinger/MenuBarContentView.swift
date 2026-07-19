@@ -5,7 +5,6 @@ import Combine
 struct MenuBarContentView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var settings: SettingsStore
-    @EnvironmentObject var stats: StatsStore
     @State private var now = Date()
 
     private let clockTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -21,17 +20,18 @@ struct MenuBarContentView: View {
             usageSection
                 .padding(14)
                 .glassPanel()
-            countdownSection
-                .padding(14)
-                .glassPanel()
-            statsSection
-                .padding(14)
-                .glassPanel()
+            if settings.showNextPossibleCountdown || settings.showScheduledCountdown {
+                countdownSection
+                    .padding(14)
+                    .glassPanel()
+            }
             actionsSection
         }
         .claudeGlassContainer(spacing: 12)
+        .environment(\.claudeClearGlass, settings.preferClearGlass)
         .padding(16)
         .frame(width: 320)
+        .background(WindowGlassBackground(clearGlass: settings.preferClearGlass).ignoresSafeArea())
         .onReceive(clockTimer) { value in
             now = value
         }
@@ -105,16 +105,30 @@ struct MenuBarContentView: View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Claude usage")
 
-            usageRow(
-                title: "Session (5 hour)",
-                percent: appState.usage?.sessionPercent,
-                resetText: sessionResetText
-            )
-            usageRow(
-                title: "Weekly (7 day)",
-                percent: appState.usage?.weeklyPercent,
-                resetText: weeklyResetText
-            )
+            if settings.showSessionBar {
+                usageRow(
+                    title: "Session (5 hour)",
+                    percent: appState.usage?.sessionPercent,
+                    resetText: sessionResetText
+                )
+            }
+            if settings.showWeeklyBar {
+                usageRow(
+                    title: "Weekly (7 day)",
+                    percent: appState.usage?.weeklyPercent,
+                    resetText: weeklyResetText
+                )
+            }
+            if settings.showFable5Bar {
+                usageRow(
+                    title: appState.usage?.fable5UsesSharedWeekly == true
+                        ? "Fable 5 (shared weekly)"
+                        : "Fable 5 weekly",
+                    percent: appState.usage?.fable5Percent,
+                    resetText: fable5ResetText,
+                    missingText: appState.usage == nil ? "No data yet" : "Not reported for this account"
+                )
+            }
 
             if let error = appState.usageError {
                 Text(error)
@@ -142,7 +156,7 @@ struct MenuBarContentView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func usageRow(title: String, percent: Int?, resetText: String?) -> some View {
+    private func usageRow(title: String, percent: Int?, resetText: String?, missingText: String = "No data yet") -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title)
@@ -159,7 +173,7 @@ struct MenuBarContentView: View {
                     .font(.system(size: 11))
                     .foregroundColor(ClaudeTheme.textSecondary)
             } else if percent == nil {
-                Text("No data yet")
+                Text(missingText)
                     .font(.system(size: 11))
                     .foregroundColor(ClaudeTheme.textSecondary)
             }
@@ -189,6 +203,13 @@ struct MenuBarContentView: View {
                 .foregroundColor(ClaudeTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if let url = URL(string: "https://status.claude.com") {
+                NSWorkspace.shared.open(url)
+            }
+        }
+        .help("Open Claude Status")
     }
 
     private var serviceStatusColor: Color {
@@ -232,29 +253,96 @@ struct MenuBarContentView: View {
         return "Resets on \(day) at \(time)"
     }
 
+    private var fable5ResetText: String? {
+        guard let usage = appState.usage else { return nil }
+        if usage.fable5UsesSharedWeekly {
+            return weeklyResetText.map { "Shared with Weekly · \($0)" } ?? "Shared with Weekly"
+        }
+        guard let date = usage.fable5ResetsAt else { return nil }
+        let day = date.formatted(.dateTime.day().month(.abbreviated).year())
+        let time = date.formatted(date: .omitted, time: .shortened)
+        return "Resets on \(day) at \(time)"
+    }
+
     private var lastUpdatedText: String {
         guard let fetched = appState.usage?.fetchedAt else { return "Not updated yet" }
         return "Last updated: \(fetched.formatted(date: .omitted, time: .shortened))"
     }
 
     private var countdownSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            SectionHeader(text: "Next session in")
-            Text(countdownText)
-                .font(.system(size: 28, weight: .semibold, design: .rounded).monospacedDigit())
-                .foregroundColor(ClaudeTheme.textPrimary)
-            if let next = appState.nextFireDate {
-                Text(next.formatted(date: .omitted, time: .shortened))
-                    .font(.system(size: 11))
-                    .foregroundColor(ClaudeTheme.textSecondary)
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                SectionHeader(text: primaryCountdownTitle)
+                Text(primaryCountdownText)
+                    .font(.system(size: 28, weight: .semibold, design: .rounded).monospacedDigit())
+                    .foregroundColor(ClaudeTheme.textPrimary)
+                if let secondaryText = secondaryCountdownText {
+                    Text(secondaryText)
+                        .font(.system(size: 10))
+                        .foregroundColor(ClaudeTheme.textSecondary.opacity(0.8))
+                }
             }
+            Spacer(minLength: 4)
+            Button(appState.status == .sending ? "Sending\u{2026}" : "Ping now") {
+                appState.pingNow()
+            }
+            .claudePrimaryButton()
+            .disabled(appState.status == .sending)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var countdownText: String {
-        guard let next = appState.nextFireDate else { return "Not scheduled" }
-        let remaining = max(0, next.timeIntervalSince(now))
+    private var nextPossibleSessionDate: Date? {
+        if let reset = appState.usage?.sessionResetsAt,
+           reset > now {
+            return reset
+        }
+        return nil
+    }
+
+    private var effectiveCountdownFocus: CountdownFocus {
+        if settings.showNextPossibleCountdown && settings.showScheduledCountdown {
+            return settings.countdownFocus
+        }
+        return settings.showScheduledCountdown ? .scheduled : .nextPossible
+    }
+
+    private var primaryCountdownTitle: String {
+        guard settings.showNextPossibleCountdown || settings.showScheduledCountdown else {
+            return "Session countdowns"
+        }
+        return effectiveCountdownFocus == .nextPossible
+            ? "Next possible session in"
+            : "Next scheduled session in"
+    }
+
+    private var primaryCountdownText: String {
+        guard settings.showNextPossibleCountdown || settings.showScheduledCountdown else { return "Hidden" }
+        let date = effectiveCountdownFocus == .nextPossible
+            ? nextPossibleSessionDate
+            : appState.nextFireDate
+        guard let date else { return "Unavailable" }
+        return durationText(until: date)
+    }
+
+    private var secondaryCountdownText: String? {
+        if effectiveCountdownFocus == .nextPossible,
+           settings.showScheduledCountdown,
+           let scheduled = appState.nextFireDate {
+            let time = scheduled.formatted(date: .omitted, time: .shortened)
+            return "Scheduled session in \(durationText(until: scheduled)) · \(time)"
+        }
+        if effectiveCountdownFocus == .scheduled,
+           settings.showNextPossibleCountdown,
+           let possible = nextPossibleSessionDate {
+            let time = possible.formatted(date: .omitted, time: .shortened)
+            return "Next possible session in \(durationText(until: possible)) · \(time)"
+        }
+        return nil
+    }
+
+    private func durationText(until date: Date) -> String {
+        let remaining = max(0, date.timeIntervalSince(now))
         let hours = Int(remaining) / 3600
         let minutes = (Int(remaining) % 3600) / 60
         let seconds = Int(remaining) % 60
@@ -264,68 +352,18 @@ struct MenuBarContentView: View {
         return String(format: "%dm %02ds", minutes, seconds)
     }
 
-    private var statsSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Success rate")
-                    .font(.system(size: 11))
-                    .foregroundColor(ClaudeTheme.textSecondary)
-                Spacer()
-                Text(successRateText)
-                    .font(.system(size: 12, weight: .medium).monospacedDigit())
-                    .foregroundColor(ClaudeTheme.textPrimary)
-            }
-            HStack {
-                Text("Last result")
-                    .font(.system(size: 11))
-                    .foregroundColor(ClaudeTheme.textSecondary)
-                Spacer()
-                Text(lastResultText)
-                    .font(.system(size: 11))
-                    .foregroundColor(ClaudeTheme.textPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            if let error = appState.lastError {
-                Text(error)
-                    .font(.system(size: 11))
-                    .foregroundColor(.red)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var successRateText: String {
-        guard stats.totalCount > 0 else { return "No pings yet" }
-        return "\(stats.successCount)/\(stats.totalCount) (\(Int(stats.successRate * 100))%)"
-    }
-
-    private var lastResultText: String {
-        guard let last = stats.lastRecord else { return "\u{2014}" }
-        return last.summary
-    }
-
     private var actionsSection: some View {
-        VStack(spacing: 8) {
-            Button(action: { appState.pingNow() }) {
-                Text(appState.status == .sending ? "Sending\u{2026}" : "Ping now")
+        HStack {
+            Button("Settings") {
+                appState.requestShowSettings?()
+                appState.requestClosePopover?()
             }
-            .claudePrimaryButton()
-            .disabled(appState.status == .sending)
-
-            HStack {
-                Button("Settings") {
-                    appState.requestShowSettings?()
-                    appState.requestClosePopover?()
-                }
-                .claudeGhostButton()
-                Spacer()
-                Button("Quit") {
-                    NSApp.terminate(nil)
-                }
-                .claudeGhostButton()
+            .claudeGhostButton()
+            Spacer()
+            Button("Quit") {
+                NSApp.terminate(nil)
             }
+            .claudeGhostButton()
         }
     }
 }

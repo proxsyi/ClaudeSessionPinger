@@ -2,11 +2,11 @@ import Foundation
 
 final class Scheduler {
     private var timer: Timer?
-    private let calendar = Calendar.current
     var onFire: (() -> Void)?
 
     func nextFireDate(after date: Date = Date(), slots: [ScheduleSlot]) -> Date? {
         guard !slots.isEmpty else { return nil }
+        let calendar = Calendar.autoupdatingCurrent
         var candidates: [Date] = []
         for dayOffset in 0...1 {
             guard let dayStart = calendar.date(byAdding: .day, value: dayOffset, to: calendar.startOfDay(for: date)) else { continue }

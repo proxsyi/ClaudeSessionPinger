@@ -7,6 +7,9 @@ struct ClaudeUsage: Equatable {
     var sessionResetsAt: Date?
     var weeklyPercent: Int?
     var weeklyResetsAt: Date?
+    var fable5Percent: Int?
+    var fable5ResetsAt: Date?
+    var fable5UsesSharedWeekly: Bool
     var fetchedAt: Date
 }
 
@@ -98,14 +101,26 @@ enum UsageChecker {
         }
         let session = usageWindow(in: object, keys: ["five_hour", "fiveHour", "session"])
         let weekly = usageWindow(in: object, keys: ["seven_day", "sevenDay", "seven_day_all_models", "weekly"])
-        guard session != nil || weekly != nil else {
+        let fable5 = usageWindow(
+            in: object,
+            keys: [
+                "seven_day_fable_5", "seven_day_fable5", "seven_day_fable",
+                "fable_5", "fable5", "fable", "fable_weekly",
+                "fable_5_weekly", "sevenDayFable5", "sevenDayFable"
+            ]
+        ) ?? fableUsageWindow(in: object)
+        guard session != nil || weekly != nil || fable5 != nil else {
             throw UsageError.unexpectedResponse
         }
+        let fableUsesSharedWeekly = fable5 == nil && weekly != nil
         return ClaudeUsage(
             sessionPercent: session?.percent,
             sessionResetsAt: session?.resetsAt,
             weeklyPercent: weekly?.percent,
             weeklyResetsAt: weekly?.resetsAt,
+            fable5Percent: fable5?.percent ?? weekly?.percent,
+            fable5ResetsAt: fable5?.resetsAt ?? weekly?.resetsAt,
+            fable5UsesSharedWeekly: fableUsesSharedWeekly,
             fetchedAt: Date()
         )
     }
@@ -225,9 +240,7 @@ enum UsageChecker {
             } else if let array = value as? [Any] {
                 array.forEach { harvest($0) }
             } else if let dict = value as? [String: Any] {
-                for key in ["models", "model", "id", "slug", "data"] where dict[key] != nil {
-                    harvest(dict[key]!)
-                }
+                dict.values.forEach { harvest($0) }
             }
         }
         harvest(json)
@@ -243,15 +256,101 @@ enum UsageChecker {
 
     private static func usageWindow(in object: [String: Any], keys: [String]) -> UsageWindow? {
         for key in keys {
-            guard let dict = object[key] as? [String: Any] else { continue }
-            let percent = percentValue(dict["utilization"])
-                ?? percentValue(dict["percentage"])
-                ?? percentValue(dict["percent_used"])
-            let resets = dateValue(dict["resets_at"])
-                ?? dateValue(dict["reset_at"])
-                ?? dateValue(dict["resetsAt"])
-            if percent != nil || resets != nil {
-                return UsageWindow(percent: percent, resetsAt: resets)
+            guard let dict = object[key] as? [String: Any], let window = usageWindow(in: dict) else { continue }
+            return window
+        }
+        return nil
+    }
+
+    /// Fable has appeared both as a named top-level limit and inside the
+    /// newer dynamic model-scoped limit collection. A scoped entry can keep
+    /// model metadata and usage values in sibling dictionaries, so identify
+    /// the whole entry first and then search that entry for its usage window.
+    private static func fableUsageWindow(in value: Any) -> UsageWindow? {
+        if let dict = value as? [String: Any] {
+            for (key, child) in dict {
+                let normalized = key.lowercased().filter { $0.isLetter || $0.isNumber }
+                if normalized.contains("fable"), let window = usageWindowRecursively(in: child) {
+                    return window
+                }
+            }
+
+            let identifyingKeys = [
+                "model", "model_id", "modelId", "model_name", "modelName",
+                "model_family", "modelFamily", "scope", "name", "slug", "label", "id"
+            ]
+            let identifiesFable = identifyingKeys.contains { key in
+                dict[key].map { valueContainsFable($0) } ?? false
+            }
+            if identifiesFable, let window = usageWindowRecursively(in: dict) {
+                return window
+            }
+
+            for child in dict.values {
+                if let window = fableUsageWindow(in: child) { return window }
+            }
+        } else if let array = value as? [Any] {
+            for child in array {
+                if let window = fableUsageWindow(in: child) { return window }
+            }
+        }
+        return nil
+    }
+
+    private static func valueContainsFable(_ value: Any) -> Bool {
+        if let text = value as? String {
+            return text.lowercased().contains("fable")
+        }
+        if let dict = value as? [String: Any] {
+            return dict.values.contains { valueContainsFable($0) }
+        }
+        if let array = value as? [Any] {
+            return array.contains { valueContainsFable($0) }
+        }
+        return false
+    }
+
+    private static func usageWindowRecursively(in value: Any) -> UsageWindow? {
+        if let dict = value as? [String: Any] {
+            if let window = usageWindow(in: dict) { return window }
+            let preferredKeys = ["seven_day", "sevenDay", "weekly", "rate_limit", "rateLimit", "usage", "window", "limit"]
+            for key in preferredKeys {
+                if let child = dict[key], let window = usageWindowRecursively(in: child) {
+                    return window
+                }
+            }
+            for child in dict.values {
+                if let window = usageWindowRecursively(in: child) { return window }
+            }
+        } else if let array = value as? [Any] {
+            for child in array {
+                if let window = usageWindowRecursively(in: child) { return window }
+            }
+        }
+        return nil
+    }
+
+    private static func usageWindow(in dict: [String: Any]) -> UsageWindow? {
+        let percent = percentValue(dict["utilization"])
+            ?? percentValue(dict["utilization_percentage"])
+            ?? percentValue(dict["percentage"])
+            ?? percentValue(dict["usage_percentage"])
+            ?? percentValue(dict["used_percentage"])
+            ?? percentValue(dict["percent_used"])
+            ?? percentValue(dict["percent"])
+        let resets = dateValue(dict["resets_at"])
+            ?? dateValue(dict["reset_at"])
+            ?? dateValue(dict["resetsAt"])
+            ?? dateValue(dict["reset_time"])
+            ?? dateValue(dict["resetTime"])
+        if percent != nil || resets != nil {
+            return UsageWindow(percent: percent, resetsAt: resets)
+        }
+
+        // Some responses wrap the actual values one level below the model.
+        for key in ["usage", "window", "limit", "rate_limit", "rateLimit"] {
+            if let child = dict[key] as? [String: Any], let window = usageWindow(in: child) {
+                return window
             }
         }
         return nil
@@ -275,8 +374,19 @@ enum UsageChecker {
     }
 
     private static func dateValue(_ raw: Any?) -> Date? {
-        if let seconds = raw as? Double, seconds > 1_000_000_000 {
-            return Date(timeIntervalSince1970: seconds)
+        let numeric: Double?
+        if let value = raw as? Double {
+            numeric = value
+        } else if let value = raw as? Int {
+            numeric = Double(value)
+        } else {
+            numeric = nil
+        }
+        if let numeric {
+            let seconds = numeric > 1_000_000_000_000 ? numeric / 1_000 : numeric
+            if seconds > 1_000_000_000 {
+                return Date(timeIntervalSince1970: seconds)
+            }
         }
         if let text = raw as? String {
             let fractional = ISO8601DateFormatter()

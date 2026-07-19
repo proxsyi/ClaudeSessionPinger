@@ -9,6 +9,17 @@ enum ClaudeTheme {
     static let cardCornerRadius: CGFloat = 12
 }
 
+private struct ClaudeClearGlassKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    var claudeClearGlass: Bool {
+        get { self[ClaudeClearGlassKey.self] }
+        set { self[ClaudeClearGlassKey.self] = newValue }
+    }
+}
+
 // MARK: - Panels
 
 /// Applies Apple's real Liquid Glass material on macOS 26+ (per
@@ -17,15 +28,15 @@ enum ClaudeTheme {
 struct GlassPanel: ViewModifier {
     var cornerRadius: CGFloat = ClaudeTheme.cardCornerRadius
     var tint: Color = .clear
+    @Environment(\.claudeClearGlass) private var preferClearGlass
 
     @ViewBuilder
     func body(content: Content) -> some View {
         if #available(macOS 26.0, *) {
+            let glass = preferClearGlass ? Glass.clear : Glass.clear.tint(Color.primary.opacity(0.10))
             content
                 .glassEffect(
-                    // The .clear glass variant: transparent "liquid" glass
-                    // rather than the frosted .regular material.
-                    tint == .clear ? .clear : .clear.tint(tint.opacity(0.35)),
+                    tint == .clear ? glass : glass.tint(tint),
                     in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 )
         } else {
@@ -135,6 +146,127 @@ extension View {
             self.buttonStyle(ClaudeGhostButtonStyle())
         }
     }
+
+    func claudeGlassField() -> some View {
+        modifier(ClaudeGlassFieldModifier())
+    }
+
+    func claudeGlassChoice(isSelected: Bool) -> some View {
+        modifier(ClaudeGlassChoiceModifier(isSelected: isSelected))
+    }
+}
+
+private struct ClaudeGlassFieldModifier: ViewModifier {
+    @Environment(\.claudeClearGlass) private var preferClearGlass
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            let glass = preferClearGlass ? Glass.clear : Glass.clear.tint(Color.primary.opacity(0.10))
+            content
+                .padding(.horizontal, 9)
+                .padding(.vertical, 6)
+                .glassEffect(glass.interactive(), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        } else {
+            content
+                .padding(.horizontal, 9)
+                .padding(.vertical, 6)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+    }
+}
+
+private struct ClaudeGlassChoiceModifier: ViewModifier {
+    let isSelected: Bool
+    @Environment(\.claudeClearGlass) private var preferClearGlass
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            let idleGlass = preferClearGlass ? Glass.clear : Glass.clear.tint(Color.primary.opacity(0.10))
+            content.glassEffect(
+                isSelected
+                    ? .regular.tint(ClaudeTheme.accent).interactive()
+                    : idleGlass.interactive(),
+                in: Capsule(style: .continuous)
+            )
+        } else {
+            content.background(
+                Capsule(style: .continuous)
+                    .fill(isSelected ? ClaudeTheme.accent : Color.primary.opacity(0.08))
+            )
+        }
+    }
+}
+
+/// A fully custom Liquid Glass switch. The glass track and thumb react as a
+/// single springy control instead of falling back to AppKit's flat blue
+/// switch, while preserving VoiceOver through ToggleStyle.Configuration.
+struct ClaudeGlassToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button {
+            // Do not put the setting mutation in a global animation transaction.
+            // The clear-glass preference is an environment value used by the
+            // entire window; animating that mutation makes every glass surface
+            // re-materialize in one spring transaction and can stall the UI.
+            configuration.isOn.toggle()
+        } label: {
+            ClaudeGlassToggleTrack(isOn: configuration.isOn)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct ClaudeGlassToggleTrack: View {
+    let isOn: Bool
+    @Environment(\.claudeClearGlass) private var preferClearGlass
+
+    @ViewBuilder
+    var body: some View {
+        if #available(macOS 26.0, *) {
+            let idleGlass = preferClearGlass ? Glass.clear : Glass.clear.tint(Color.primary.opacity(0.10))
+            track
+                .glassEffect(
+                    isOn
+                        ? .regular.tint(ClaudeTheme.accent).interactive()
+                        : idleGlass.interactive(),
+                    in: Capsule(style: .continuous)
+                )
+        } else {
+            track
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(isOn ? ClaudeTheme.accent : Color.primary.opacity(0.12))
+                )
+        }
+    }
+
+    private var track: some View {
+        HStack(spacing: 0) {
+            if isOn { Spacer(minLength: 0) }
+            Circle()
+                .fill(Color.white.opacity(0.9))
+                .frame(width: 13, height: 13)
+                .shadow(color: .black.opacity(0.18), radius: 1.5, y: 1)
+                .modifier(GlassToggleThumb())
+            if !isOn { Spacer(minLength: 0) }
+        }
+        .padding(2)
+        .frame(width: 34, height: 18)
+        .contentShape(Capsule(style: .continuous))
+        .animation(.spring(response: 0.28, dampingFraction: 0.72), value: isOn)
+    }
+}
+
+private struct GlassToggleThumb: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content.glassEffect(.clear.interactive(), in: Circle())
+        } else {
+            content
+        }
+    }
 }
 
 // MARK: - Clean components
@@ -163,16 +295,8 @@ struct UsageBar: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .leading) {
-                Capsule(style: .continuous)
-                    .fill(Color.primary.opacity(0.08))
-                Capsule(style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [color.opacity(0.8), color],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
+                GlassUsageTrack()
+                GlassUsageFill(color: color)
                     .frame(width: max(fraction > 0 ? height : 0, proxy.size.width * fraction))
             }
         }
@@ -186,6 +310,45 @@ struct UsageBar: View {
     }
 }
 
+private struct GlassUsageTrack: View {
+    @Environment(\.claudeClearGlass) private var preferClearGlass
+
+    @ViewBuilder
+    var body: some View {
+        if #available(macOS 26.0, *) {
+            let glass = preferClearGlass ? Glass.clear : Glass.clear.tint(Color.primary.opacity(0.10))
+            Capsule(style: .continuous)
+                .fill(Color.clear)
+                .glassEffect(glass, in: Capsule(style: .continuous))
+        } else {
+            Capsule(style: .continuous)
+                .fill(Color.primary.opacity(0.08))
+        }
+    }
+}
+
+private struct GlassUsageFill: View {
+    let color: Color
+
+    @ViewBuilder
+    var body: some View {
+        if #available(macOS 26.0, *) {
+            Capsule(style: .continuous)
+                .fill(Color.clear)
+                .glassEffect(.regular.tint(color), in: Capsule(style: .continuous))
+        } else {
+            Capsule(style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [color.opacity(0.8), color],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+        }
+    }
+}
+
 // MARK: - Window glass
 
 /// The system's own behind-window Liquid Glass: an `NSVisualEffectView`
@@ -193,15 +356,17 @@ struct UsageBar: View {
 /// material and accessibility settings (so "Reduce transparency" is
 /// respected automatically). Used as the root background of whole windows.
 struct WindowGlassBackground: NSViewRepresentable {
+    let clearGlass: Bool
+
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
-        // .hudWindow is the most transparent of the standard materials --
-        // clear glass rather than heavy frost.
-        view.material = .hudWindow
+        view.material = clearGlass ? .underWindowBackground : .popover
         view.blendingMode = .behindWindow
-        view.state = .active
+        view.state = .followsWindowActiveState
         return view
     }
 
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = clearGlass ? .underWindowBackground : .popover
+    }
 }
